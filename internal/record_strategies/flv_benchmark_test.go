@@ -44,7 +44,7 @@ func BenchmarkFlvStrategy_PipelineWriterThroughput(b *testing.B) {
 	b.SetBytes(int64(len(chunk)))
 	b.ResetTimer()
 	mon.MarkTimerStart()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		if _, err := pipe.Process(ctx, chunk); err != nil {
 			b.Fatalf("Process failed: %v", err)
 		}

@@ -109,7 +109,7 @@ func BenchmarkTsContinuityFixer_FixSegment_200Packets(b *testing.B) {
 	b.ResetTimer()
 	mon.MarkTimerStart()
 
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		copy(work, base)
 		_ = fixer.FixSegment(work)
 		mon.SamplePeriodically(i)
@@ -127,7 +127,7 @@ func BenchmarkTsContinuityFixer_FixSegment_1200Packets(b *testing.B) {
 	b.ResetTimer()
 	mon.MarkTimerStart()
 
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		copy(work, base)
 		_ = fixer.FixSegment(work)
 		mon.SamplePeriodically(i)

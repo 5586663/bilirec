@@ -21,7 +21,7 @@ func benchmarkBytesPoolGetPut(b *testing.B, size, capacity int, bounded bool) {
 	b.SetBytes(int64(size))
 	b.ResetTimer()
 	mon.MarkTimerStart()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		buf := p.GetBytes()
 		p.PutBytes(buf)
 		mon.SamplePeriodically(i)
@@ -56,7 +56,7 @@ func benchmarkBucketedBytesPoolGetPut(b *testing.B, base, size, capacity int, bo
 	b.SetBytes(int64(size))
 	b.ResetTimer()
 	mon.MarkTimerStart()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		buf := p.GetSized(size)
 		p.Put(buf)
 		mon.SamplePeriodically(i)
@@ -102,7 +102,7 @@ func benchmarkBufferPoolGetPut(b *testing.B, capacity int, bounded bool) {
 	b.SetBytes(int64(size))
 	b.ResetTimer()
 	mon.MarkTimerStart()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		buf := p.Get()
 		p.Put(buf)
 		mon.SamplePeriodically(i)

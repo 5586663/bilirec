@@ -448,7 +448,7 @@ func BenchmarkRealtimeFixer_Fix_1MBChunk(b *testing.B) {
 	var sink []byte
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		out, err := fixer.Fix(chunk)
 		if err != nil {
 			b.Fatalf("fix chunk: %v", err)

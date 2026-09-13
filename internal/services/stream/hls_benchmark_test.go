@@ -63,7 +63,7 @@ func BenchmarkReadHlsStream_DeliveryLatency(b *testing.B) {
 	b.ResetTimer()
 	mon.MarkTimerStart()
 
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		ctx, cancel := context.WithCancel(context.Background())
 		start := time.Now()
 		chunkPool, releasePool := svc.AcquireChunkPool(10000)

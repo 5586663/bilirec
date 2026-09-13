@@ -33,7 +33,7 @@ func BenchmarkFlushLockedBufferedWriter_WriteAndFlush(b *testing.B) {
 			b.SetBytes(int64(tc.writeSize))
 			b.ResetTimer()
 			mon.MarkTimerStart()
-			for i := 0; i < b.N; i++ {
+			for i := 0; b.Loop(); i++ {
 				if _, err := writer.Write(data); err != nil {
 					b.Fatalf("write failed: %v", err)
 				}

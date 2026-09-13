@@ -794,7 +794,7 @@ func BenchmarkParseM3u8_SmallWindow(b *testing.B) {
 	b.ResetTimer()
 	mon.MarkTimerStart()
 
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		pl, err := hlsutil.ParseBytes(body)
 		if err != nil {
 			b.Fatalf("parseM3u8 failed: %v", err)
@@ -814,7 +814,7 @@ func BenchmarkParseM3u8_MapWindow(b *testing.B) {
 	b.ResetTimer()
 	mon.MarkTimerStart()
 
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		pl, err := hlsutil.ParseBytes(body)
 		if err != nil {
 			b.Fatalf("parseM3u8 failed: %v", err)
@@ -834,7 +834,7 @@ func BenchmarkParseM3u8_FromBodyBytes(b *testing.B) {
 	b.ResetTimer()
 	mon.MarkTimerStart()
 
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		pl, err := hlsutil.Parse(string(bodyBytes))
 		if err != nil {
 			b.Fatalf("parseM3u8 failed: %v", err)
@@ -866,7 +866,7 @@ func BenchmarkParseM3u8_Scalability(b *testing.B) {
 			b.SetBytes(int64(len(body)))
 			b.ResetTimer()
 			mon.MarkTimerStart()
-			for i := 0; i < b.N; i++ {
+			for i := 0; b.Loop(); i++ {
 				pl, err := hlsutil.ParseBytes(body)
 				if err != nil {
 					b.Fatalf("parseM3u8 failed: %v", err)

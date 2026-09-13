@@ -185,7 +185,7 @@ func BenchmarkNormalizeFragmentTimestamps_Version1(b *testing.B) {
 	b.ResetTimer()
 	mon.MarkTimerStart()
 
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		copy(work, base)
 		_ = NormalizeFragmentTimestamps(work, bases)
 		mon.SamplePeriodically(i)
@@ -203,7 +203,7 @@ func BenchmarkNormalizeFragmentTimestamps_Version0(b *testing.B) {
 	b.ResetTimer()
 	mon.MarkTimerStart()
 
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		copy(work, base)
 		_ = NormalizeFragmentTimestamps(work, bases)
 		mon.SamplePeriodically(i)
@@ -225,7 +225,7 @@ func BenchmarkNormalizeFragmentTimestamps_ComplexFragment(b *testing.B) {
 	b.ResetTimer()
 	mon.MarkTimerStart()
 
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		copy(work, base)
 		_ = NormalizeFragmentTimestamps(work, bases)
 		mon.SamplePeriodically(i)

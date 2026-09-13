@@ -38,7 +38,7 @@ func benchmarkSegmentDedup(b *testing.B, payloadSize int, duplicate bool) {
 	b.ResetTimer()
 	mon.MarkTimerStart()
 
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		var payload []byte
 		if duplicate {
 			payload = a
@@ -97,7 +97,7 @@ func BenchmarkSegmentDedup_VaryingSize(b *testing.B) {
 	b.ResetTimer()
 	mon.MarkTimerStart()
 
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		payload := segs[i%len(segs)]
 		if _, err := proc.Process(context.Background(), entry, payload); err != nil {
 			b.Fatalf("process failed: %v", err)

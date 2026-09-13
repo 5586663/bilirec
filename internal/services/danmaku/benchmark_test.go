@@ -35,7 +35,7 @@ func BenchmarkParseDanmaku(b *testing.B) {
 	b.SetBytes(int64(len(raw)))
 	b.ResetTimer()
 	mon.MarkTimerStart()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		if _, ok := parseDanmaku(raw); !ok {
 			b.Fatal("parse failed")
 		}
@@ -51,7 +51,7 @@ func BenchmarkParseGift(b *testing.B) {
 	b.SetBytes(int64(len(raw)))
 	b.ResetTimer()
 	mon.MarkTimerStart()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		_ = parseGift(raw)
 		mon.SamplePeriodically(i)
 	}
@@ -73,7 +73,7 @@ func BenchmarkParseGiftV2(b *testing.B) {
 	b.SetBytes(int64(len(raw)))
 	b.ResetTimer()
 	mon.MarkTimerStart()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		gifts, err := parseGiftV2(raw)
 		if err != nil || len(gifts) != 1 {
 			b.Fatal(err)
@@ -90,7 +90,7 @@ func BenchmarkParseSuperChat(b *testing.B) {
 	b.SetBytes(int64(len(raw)))
 	b.ResetTimer()
 	mon.MarkTimerStart()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		_ = parseSuperChat(raw)
 		mon.SamplePeriodically(i)
 	}
@@ -112,7 +112,7 @@ func BenchmarkEncodeDanmaku(b *testing.B) {
 		b.SetBytes(int64(len(sample)))
 		b.ResetTimer()
 		mon.MarkTimerStart()
-		for i := 0; i < b.N; i++ {
+		for i := 0; b.Loop(); i++ {
 			buf := svc.pool.GetBytes()
 			_ = enc.AppendDanmaku(buf[:0], e, "1.234")
 			svc.pool.PutBytes(buf)
@@ -129,7 +129,7 @@ func BenchmarkEncodeDanmaku(b *testing.B) {
 		b.SetBytes(int64(len(sample)))
 		b.ResetTimer()
 		mon.MarkTimerStart()
-		for i := 0; i < b.N; i++ {
+		for i := 0; b.Loop(); i++ {
 			buf := svc.pool.GetBytes()
 			_ = enc.AppendDanmaku(buf[:0], e, "1.234")
 			svc.pool.PutBytes(buf)
@@ -169,7 +169,7 @@ func benchmarkHandleAndWrite(b *testing.B, format string) {
 	b.SetBytes(int64(len(raw)))
 	b.ResetTimer()
 	mon.MarkTimerStart()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		sess.handleDanmaku(raw)
 		mon.SamplePeriodically(i)
 	}
@@ -202,7 +202,7 @@ func BenchmarkEnqueue_DropWhenFull(b *testing.B) {
 	b.SetBytes(int64(len(raw)))
 	b.ResetTimer()
 	mon.MarkTimerStart()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		sess.handleDanmaku(raw)
 		mon.SamplePeriodically(i)
 	}
@@ -232,7 +232,7 @@ func BenchmarkJSONLMarshalLibs(b *testing.B) {
 	b.Run("stdlib", func(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for i := 0; b.Loop(); i++ {
 			out, err := json.Marshal(line)
 			if err != nil {
 				b.Fatal(err)
@@ -246,7 +246,7 @@ func BenchmarkJSONLMarshalLibs(b *testing.B) {
 	b.Run("sonic_marshal", func(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for i := 0; b.Loop(); i++ {
 			out, err := sonic.Marshal(line)
 			if err != nil {
 				b.Fatal(err)
@@ -261,7 +261,7 @@ func BenchmarkJSONLMarshalLibs(b *testing.B) {
 		buf := make([]byte, 0, 512)
 		b.ReportAllocs()
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for i := 0; b.Loop(); i++ {
 			buf = buf[:0]
 			if err := encoder.EncodeInto(&buf, line, 0); err != nil {
 				b.Fatal(err)

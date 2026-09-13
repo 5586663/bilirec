@@ -143,7 +143,7 @@ func BenchmarkFlvRead_4KPayload_DefaultVsHighPool(b *testing.B) {
 		start := time.Now()
 		mon.MarkTimerStart()
 		var totalChunks int64
-		for i := 0; i < b.N; i++ {
+		for i := 0; b.Loop(); i++ {
 			chunks, total := runOnce(svc, 10000)
 			if total != payloadSize {
 				b.Fatalf("unexpected total bytes: got %d want %d", total, payloadSize)
@@ -178,7 +178,7 @@ func BenchmarkFlvRead_4KPayload_DefaultVsHighPool(b *testing.B) {
 		start := time.Now()
 		mon.MarkTimerStart()
 		var totalChunks int64
-		for i := 0; i < b.N; i++ {
+		for i := 0; b.Loop(); i++ {
 			chunks, total := runOnce(svc, 20000)
 			if total != payloadSize {
 				b.Fatalf("unexpected total bytes: got %d want %d", total, payloadSize)
