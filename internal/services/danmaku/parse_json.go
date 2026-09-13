@@ -1,8 +1,9 @@
 package danmaku
 
 import (
-	"encoding/json"
+	"fmt"
 
+	"github.com/bytedance/sonic"
 	"github.com/tidwall/gjson"
 )
 
@@ -56,22 +57,28 @@ func parseDanmaku(raw []byte) (Danmaku, bool) {
 	return e, true
 }
 
-func parseSuperChat(raw []byte) SuperChat {
-	var sc SuperChat
-	_ = json.Unmarshal([]byte(gjson.GetBytes(raw, "data").Raw), &sc)
-	return sc
+func parseSuperChat(raw []byte) (SuperChat, error) {
+	return unmarshalWSData[SuperChat](raw)
 }
 
-func parseGift(raw []byte) Gift {
-	var g Gift
-	_ = json.Unmarshal([]byte(gjson.GetBytes(raw, "data").Raw), &g)
-	return g
+func parseGift(raw []byte) (Gift, error) {
+	return unmarshalWSData[Gift](raw)
 }
 
-func parseGuard(raw []byte) Guard {
-	var g Guard
-	_ = json.Unmarshal([]byte(gjson.GetBytes(raw, "data").Raw), &g)
-	return g
+func parseGuard(raw []byte) (Guard, error) {
+	return unmarshalWSData[Guard](raw)
+}
+
+func unmarshalWSData[T any](raw []byte) (T, error) {
+	var v T
+	data := gjson.GetBytes(raw, "data")
+	if !data.Exists() {
+		return v, fmt.Errorf("missing data")
+	}
+	if err := sonic.UnmarshalString(data.Raw, &v); err != nil {
+		return v, fmt.Errorf("unmarshal data: %w", err)
+	}
+	return v, nil
 }
 
 func gint(raw []byte, path string, def int64) int64 {

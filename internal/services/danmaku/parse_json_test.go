@@ -37,7 +37,10 @@ func TestParseDanmakuMissingInfo(t *testing.T) {
 }
 
 func TestParseSuperChatGiftGuard(t *testing.T) {
-	sc := parseSuperChat([]byte(`{"cmd":"SUPER_CHAT_MESSAGE","data":{"uid":123,"id":999,"start_time":1700000000,"end_time":1700000060,"user_info":{"uname":"sc用户","name_color":"#646c7a","face":"https://example.com/a.png"},"price":30,"time":60,"message":"醒目留言","background_color":"#EDF5FF","background_bottom_color":"#2A60B2","background_price_color":"#7497CD","message_font_color":"#FFFFFF","background_image":"https://example.com/bg.png","background_color_start":"#111111","background_color_end":"#222222"}}`))
+	sc, err := parseSuperChat([]byte(`{"cmd":"SUPER_CHAT_MESSAGE","data":{"uid":123,"id":999,"start_time":1700000000,"end_time":1700000060,"user_info":{"uname":"sc用户","name_color":"#646c7a","face":"https://example.com/a.png"},"price":30,"time":60,"message":"醒目留言","background_color":"#EDF5FF","background_bottom_color":"#2A60B2","background_price_color":"#7497CD","message_font_color":"#FFFFFF","background_image":"https://example.com/bg.png","background_color_start":"#111111","background_color_end":"#222222"}}`))
+	if err != nil {
+		t.Fatalf("parseSuperChat: %v", err)
+	}
 	if sc.UID != 123 || sc.Price != 30 || sc.Message != "醒目留言" || sc.Uname() != "sc用户" {
 		t.Errorf("sc: %+v", sc)
 	}
@@ -47,13 +50,34 @@ func TestParseSuperChatGiftGuard(t *testing.T) {
 	if sc.ID != 999 || sc.StartTime != 1700000000 || sc.EndTime != 1700000060 || sc.UserInfo.NameColor != "#646c7a" || sc.UserInfo.Face == "" || sc.BackgroundImage == "" {
 		t.Errorf("sc meta: %+v", sc)
 	}
-	gift := parseGift([]byte(`{"cmd":"SEND_GIFT","data":{"uname":"礼物用户","uid":456,"giftName":"小花花","num":2,"price":100,"coin_type":"gold"}}`))
+	gift, err := parseGift([]byte(`{"cmd":"SEND_GIFT","data":{"uname":"礼物用户","uid":456,"giftName":"小花花","num":2,"price":100,"coin_type":"gold"}}`))
+	if err != nil {
+		t.Fatalf("parseGift: %v", err)
+	}
 	if gift.UID != 456 || gift.GiftName != "小花花" || gift.Num != 2 || gift.Price != 100 || gift.CoinType != "gold" {
 		t.Errorf("gift: %+v", gift)
 	}
-	guard := parseGuard([]byte(`{"cmd":"GUARD_BUY","data":{"username":"舰长用户","uid":789,"guard_level":3,"num":1,"price":198000,"gift_name":"舰长"}}`))
+	guard, err := parseGuard([]byte(`{"cmd":"GUARD_BUY","data":{"username":"舰长用户","uid":789,"guard_level":3,"num":1,"price":198000,"gift_name":"舰长"}}`))
+	if err != nil {
+		t.Fatalf("parseGuard: %v", err)
+	}
 	if guard.UID != 789 || guard.GuardLevel != 3 || guard.Num != 1 || guard.Price != 198000 || guard.GiftName != "舰长" {
 		t.Errorf("guard: %+v", guard)
+	}
+}
+
+func TestParseWSDataErrors(t *testing.T) {
+	for name, fn := range map[string]func([]byte) error{
+		"super_chat": func(raw []byte) error { _, err := parseSuperChat(raw); return err },
+		"gift":       func(raw []byte) error { _, err := parseGift(raw); return err },
+		"guard":      func(raw []byte) error { _, err := parseGuard(raw); return err },
+	} {
+		if err := fn([]byte(`{"cmd":"TEST"}`)); err == nil {
+			t.Errorf("%s: expected error for missing data", name)
+		}
+		if err := fn([]byte(`{"cmd":"TEST","data":{`)); err == nil {
+			t.Errorf("%s: expected error for malformed data", name)
+		}
 	}
 }
 

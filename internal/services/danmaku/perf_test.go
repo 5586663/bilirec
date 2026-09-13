@@ -176,7 +176,7 @@ func TestParseDanmaku_AllocsPerOp(t *testing.T) {
 func TestParseGift_AllocsPerOp(t *testing.T) {
 	raw := []byte(perfGiftJSON)
 	allocs := testing.AllocsPerRun(200, func() {
-		_ = parseGift(raw)
+		_, _ = parseGift(raw)
 	})
 	logDanmakuMetric(t, "parse_gift_allocs", map[string]any{"allocs_per_op": fmt.Sprintf("%.1f", allocs)})
 	if allocs > danmakuPerfMaxGiftParseAllocs {

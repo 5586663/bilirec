@@ -52,7 +52,7 @@ func BenchmarkParseGift(b *testing.B) {
 	b.ResetTimer()
 	mon.MarkTimerStart()
 	for i := 0; b.Loop(); i++ {
-		_ = parseGift(raw)
+		_, _ = parseGift(raw)
 		mon.SamplePeriodically(i)
 	}
 }
@@ -91,7 +91,7 @@ func BenchmarkParseSuperChat(b *testing.B) {
 	b.ResetTimer()
 	mon.MarkTimerStart()
 	for i := 0; b.Loop(); i++ {
-		_ = parseSuperChat(raw)
+		_, _ = parseSuperChat(raw)
 		mon.SamplePeriodically(i)
 	}
 }
