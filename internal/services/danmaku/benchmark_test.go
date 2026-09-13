@@ -57,6 +57,31 @@ func BenchmarkParseGift(b *testing.B) {
 	}
 }
 
+func BenchmarkParseGiftV2(b *testing.B) {
+	benchDanmakuSetup(b)
+	item := buildGiftV2ItemMessage(1, "小花花", 2)
+	pb := buildSendGiftBroadcastPB(sendGiftBroadcastTestOpts{
+		uid:       456,
+		uname:     "礼物用户",
+		face:      "https://example.com/f.png",
+		nameColor: "#00D1F1",
+		items:     [][]byte{item},
+	})
+	raw := buildSendGiftV2JSON(pb)
+	mon := benchreport.Start(b, int64(len(raw)))
+	b.ReportAllocs()
+	b.SetBytes(int64(len(raw)))
+	b.ResetTimer()
+	mon.MarkTimerStart()
+	for i := 0; i < b.N; i++ {
+		gifts, err := parseGiftV2(raw)
+		if err != nil || len(gifts) != 1 {
+			b.Fatal(err)
+		}
+		mon.SamplePeriodically(i)
+	}
+}
+
 func BenchmarkParseSuperChat(b *testing.B) {
 	benchDanmakuSetup(b)
 	raw := []byte(perfSuperChatJSON)

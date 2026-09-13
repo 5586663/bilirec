@@ -121,6 +121,42 @@ func TestDispatchCmdColonSuffixNormalization(t *testing.T) {
 	}
 }
 
+func TestDispatchSendGiftV2(t *testing.T) {
+	c := NewLiveMessageClient(123, 0, "")
+	fn, ch := collectHandler()
+	c.HandleFunc("SEND_GIFT_V2", fn)
+
+	body := []byte(`{"cmd":"SEND_GIFT_V2","data":{"pb":"AA==","dmscore":1}}`)
+	c.dispatch(encodePacket(opMessage, protoPlain, body))
+
+	select {
+	case raw := <-ch:
+		if !bytes.Equal(raw, body) {
+			t.Errorf("body = %q, want %q", raw, body)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("SEND_GIFT_V2 handler not called")
+	}
+}
+
+func TestDispatchSendGiftV2ColonSuffix(t *testing.T) {
+	c := NewLiveMessageClient(123, 0, "")
+	fn, ch := collectHandler()
+	c.HandleFunc("SEND_GIFT_V2", fn)
+
+	body := []byte(`{"cmd":"SEND_GIFT_V2:4:0:1:1:1:0","data":{"pb":"AA==","dmscore":1}}`)
+	c.dispatch(encodePacket(opMessage, protoPlain, body))
+
+	select {
+	case raw := <-ch:
+		if !bytes.Equal(raw, body) {
+			t.Errorf("body = %q, want %q", raw, body)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("SEND_GIFT_V2 handler not called for colon-suffixed cmd")
+	}
+}
+
 func TestDispatchBrotliSubPackets(t *testing.T) {
 	c := NewLiveMessageClient(123, 0, "")
 	danmakuFn, danmakuCh := collectHandler()

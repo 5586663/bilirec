@@ -143,6 +143,7 @@ func (s *session) runOnce() error {
 	client.HandleFunc("DANMU_MSG", s.handleDanmaku)
 	client.HandleFunc("SUPER_CHAT_MESSAGE", s.handleSuperChat)
 	client.HandleFunc("SEND_GIFT", s.handleGift)
+	client.HandleFunc("SEND_GIFT_V2", s.handleGiftV2)
 	client.HandleFunc("GUARD_BUY", s.handleGuard)
 
 	s.svc.metrics.DanmakuConnectionActive(s.roomID, true)
@@ -177,6 +178,21 @@ func (s *session) handleGift(raw []byte) {
 	s.enqueue(func(buf []byte, ts string) []byte {
 		return s.encoder.AppendGift(buf, e, ts)
 	}, giftEventType)
+}
+
+func (s *session) handleGiftV2(raw []byte) {
+	gifts, err := parseGiftV2(raw)
+	if err != nil {
+		s.svc.metrics.DanmakuParseError(s.roomID)
+		log.Warnf("房间 %d SEND_GIFT_V2 解析失败：%v", s.roomID, err)
+		return
+	}
+	for _, gift := range gifts {
+		s.svc.metrics.DanmakuMessageReceived(s.roomID, giftEventType)
+		s.enqueue(func(buf []byte, ts string) []byte {
+			return s.encoder.AppendGift(buf, gift, ts)
+		}, giftEventType)
+	}
 }
 
 func (s *session) handleGuard(raw []byte) {
