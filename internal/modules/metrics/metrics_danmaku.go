@@ -99,12 +99,12 @@ func (e *Exporter) DanmakuMessageDropped(roomID int, eventType string) {
 	e.registry.counterEvent(metricDanmakuMessagesDroppedTotal, roomID, eventType).Inc()
 }
 
-// DanmakuParseError records an unparsable ordinary danmaku event.
-func (e *Exporter) DanmakuParseError(roomID int) {
-	if e.registry == nil {
+// DanmakuParseError records an unparsable danmaku event by type.
+func (e *Exporter) DanmakuParseError(roomID int, eventType string) {
+	if e.registry == nil || !isDanmakuEventType(eventType) {
 		return
 	}
-	e.registry.counter(metricDanmakuParseErrorsTotal, roomID).Inc()
+	e.registry.counterEvent(metricDanmakuParseErrorsTotal, roomID, eventType).Inc()
 }
 
 // AddDanmakuBytes accumulates encoded bytes sent to the sidecar writer.
@@ -149,12 +149,12 @@ func (e *Exporter) unregisterDanmakuCounters(roomID int) {
 	e.registry.unregisterCounter(metricDanmakuSessionsTotal, roomID)
 	e.registry.unregisterCounter(metricDanmakuConnectionAttemptsTotal, roomID)
 	e.registry.unregisterCounter(metricDanmakuReconnectsTotal, roomID)
-	e.registry.unregisterCounter(metricDanmakuParseErrorsTotal, roomID)
 	e.registry.unregisterCounter(metricDanmakuBytesTotal, roomID)
 	e.registry.unregisterCounter(metricDanmakuRotationsTotal, roomID)
 	e.registry.unregisterCounter(metricDanmakuRotationDroppedTotal, roomID)
 	for _, eventType := range danmakuEventTypes {
 		e.registry.unregisterCounterEvent(metricDanmakuMessagesTotal, roomID, eventType)
 		e.registry.unregisterCounterEvent(metricDanmakuMessagesDroppedTotal, roomID, eventType)
+		e.registry.unregisterCounterEvent(metricDanmakuParseErrorsTotal, roomID, eventType)
 	}
 }

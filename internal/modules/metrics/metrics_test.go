@@ -68,7 +68,7 @@ func TestExporterDisabledNoop(t *testing.T) {
 	e.DanmakuReconnect(123)
 	e.DanmakuMessageReceived(123, eventTypeDanmaku)
 	e.DanmakuMessageDropped(123, eventTypeDanmaku)
-	e.DanmakuParseError(123)
+	e.DanmakuParseError(123, eventTypeDanmaku)
 	e.AddDanmakuBytes(123, 1)
 	e.DanmakuRotation(123)
 	e.DanmakuRotationDropped(123)
@@ -187,7 +187,7 @@ func TestExporterEnabled(t *testing.T) {
 	e.DanmakuReconnect(123)
 	e.DanmakuMessageReceived(123, eventTypeDanmaku)
 	e.DanmakuMessageDropped(123, eventTypeSuperChat)
-	e.DanmakuParseError(123)
+	e.DanmakuParseError(123, eventTypeDanmaku)
 	e.AddDanmakuBytes(123, 1024)
 	e.DanmakuRotation(123)
 	e.DanmakuRotationDropped(123)
@@ -224,7 +224,7 @@ func TestExporterEnabled(t *testing.T) {
 		`bilirec_danmaku_reconnects_total{room_id="123"} 1`,
 		`bilirec_danmaku_messages_total{room_id="123",event_type="danmaku"} 1`,
 		`bilirec_danmaku_messages_dropped_total{room_id="123",event_type="super_chat"} 1`,
-		`bilirec_danmaku_parse_errors_total{room_id="123"} 1`,
+		`bilirec_danmaku_parse_errors_total{room_id="123",event_type="danmaku"} 1`,
 		`bilirec_danmaku_bytes_total{room_id="123"} 1024`,
 		`bilirec_danmaku_rotations_total{room_id="123"} 1`,
 		`bilirec_danmaku_rotation_dropped_total{room_id="123"} 1`,
@@ -337,8 +337,8 @@ func TestExporterDeleteRoomClearsAllSpecs(t *testing.T) {
 	for _, eventType := range danmakuEventTypes {
 		e.DanmakuMessageReceived(123, eventType)
 		e.DanmakuMessageDropped(123, eventType)
+		e.DanmakuParseError(123, eventType)
 	}
-	e.DanmakuParseError(123)
 	e.AddDanmakuBytes(123, 1)
 	e.DanmakuRotation(123)
 	e.DanmakuRotationDropped(123)

@@ -155,7 +155,7 @@ func (s *session) runOnce() error {
 func (s *session) handleDanmaku(raw []byte) {
 	e, ok := parseDanmaku(raw)
 	if !ok {
-		s.svc.metrics.DanmakuParseError(s.roomID)
+		s.svc.metrics.DanmakuParseError(s.roomID, danmakuEventType)
 		return
 	}
 	s.svc.metrics.DanmakuMessageReceived(s.roomID, danmakuEventType)
@@ -167,7 +167,7 @@ func (s *session) handleDanmaku(raw []byte) {
 func (s *session) handleSuperChat(raw []byte) {
 	e, err := parseSuperChat(raw)
 	if err != nil {
-		s.svc.metrics.DanmakuParseError(s.roomID)
+		s.svc.metrics.DanmakuParseError(s.roomID, superChatEventType)
 		log.Warnf("房间 %d SUPER_CHAT_MESSAGE 解析失败：%v", s.roomID, err)
 		return
 	}
@@ -180,7 +180,7 @@ func (s *session) handleSuperChat(raw []byte) {
 func (s *session) handleGift(raw []byte) {
 	e, err := parseGift(raw)
 	if err != nil {
-		s.svc.metrics.DanmakuParseError(s.roomID)
+		s.svc.metrics.DanmakuParseError(s.roomID, giftEventType)
 		log.Warnf("房间 %d SEND_GIFT 解析失败：%v", s.roomID, err)
 		return
 	}
@@ -193,7 +193,7 @@ func (s *session) handleGift(raw []byte) {
 func (s *session) handleGiftV2(raw []byte) {
 	gifts, err := parseGiftV2(raw)
 	if err != nil {
-		s.svc.metrics.DanmakuParseError(s.roomID)
+		s.svc.metrics.DanmakuParseError(s.roomID, giftEventType)
 		log.Warnf("房间 %d SEND_GIFT_V2 解析失败：%v", s.roomID, err)
 		return
 	}
@@ -208,7 +208,7 @@ func (s *session) handleGiftV2(raw []byte) {
 func (s *session) handleGuard(raw []byte) {
 	e, err := parseGuard(raw)
 	if err != nil {
-		s.svc.metrics.DanmakuParseError(s.roomID)
+		s.svc.metrics.DanmakuParseError(s.roomID, guardEventType)
 		log.Warnf("房间 %d GUARD_BUY 解析失败：%v", s.roomID, err)
 		return
 	}
