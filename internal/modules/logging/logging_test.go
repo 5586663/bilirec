@@ -11,9 +11,80 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bilirec/bilirec/internal/modules/config"
 	"github.com/bilirec/bilirec/pkg/logger"
 	logsink "github.com/bilirec/bilirec/pkg/sink"
+	"go.uber.org/fx/fxtest"
 )
+
+func TestWireLocalLoggerWritesConfiguredFile(t *testing.T) {
+	tests := []struct {
+		name   string
+		format string
+		msg    string
+		check  func(t *testing.T, out string)
+	}{
+		{
+			name:   "pretty",
+			format: "pretty",
+			msg:    "hello-wired-pretty",
+			check: func(t *testing.T, out string) {
+				if !strings.Contains(out, "INFO") || !strings.Contains(out, "hello-wired-pretty") {
+					t.Fatalf("unexpected pretty output: %q", out)
+				}
+				if strings.Contains(out, `"message":`) || strings.Contains(out, `"timestamp":`) {
+					t.Fatalf("pretty local output must not be jsonline: %q", out)
+				}
+			},
+		},
+		{
+			name:   "jsonline",
+			format: "jsonline",
+			msg:    "hello-wired-json",
+			check: func(t *testing.T, out string) {
+				if !strings.Contains(out, `"message":"hello-wired-json"`) {
+					t.Fatalf("jsonline output expected, got: %q", out)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			color := false
+			logger.Init(logger.Options{Output: io.Discard, Color: &color})
+			resetCoresForTest(t)
+
+			dir := t.TempDir()
+			logPath := filepath.Join(dir, "bilirec.log")
+			lc := fxtest.NewLifecycle(t)
+			wireLocalLogger(lc, &config.Config{
+				LocalLogsEnabled:       true,
+				LocalLogsPath:          logPath,
+				LocalLogsFormat:        tt.format,
+				LocalLogsOverflow:      "block",
+				LocalLogsMaxSizeMB:     20,
+				LocalLogsMaxAgeDays:    7,
+				LocalLogsMaxBackups:    3,
+				LocalLogsBatchBytes:    1024,
+				LocalLogsBufferSize:    16,
+				LocalLogsFlushInterval: 50 * time.Millisecond,
+			})
+			lc.RequireStart()
+
+			logger.Named("wired").Info(tt.msg)
+			logger.Sync()
+			lc.RequireStop()
+
+			body, err := os.ReadFile(logPath)
+			if err != nil {
+				t.Fatalf("read log file: %v", err)
+			}
+			t.Log(string(body))
+			tt.check(t, string(body))
+		})
+	}
+}
 
 func TestShutdownSinkFlushesBeforeClearAndStop(t *testing.T) {
 	color := false
