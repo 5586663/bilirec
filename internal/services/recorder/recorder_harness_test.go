@@ -58,6 +58,7 @@ const (
 type recorderTestSession struct {
 	t        *testing.T
 	app      *fxtest.App
+	Bili     *bilibili.Client
 	Recorder *recorder.Service
 	Room     *room.Service
 	Danmaku  *danmaku.Service
@@ -68,6 +69,7 @@ func newRecorderTestSession(t *testing.T) *recorderTestSession {
 	t.Helper()
 
 	monitor := newRecorderTestMonitor(t)
+	var biliClient *bilibili.Client
 	var recorderService *recorder.Service
 	var roomService *room.Service
 	var danmakuService *danmaku.Service
@@ -83,13 +85,14 @@ func newRecorderTestSession(t *testing.T) *recorderTestSession {
 		fx.Provide(notify.NewService),
 		fx.Provide(danmaku.NewService),
 		fx.Provide(recorder.NewService),
-		fx.Populate(&recorderService, &roomService, &danmakuService),
+		fx.Populate(&biliClient, &recorderService, &roomService, &danmakuService),
 	)
 	app.RequireStart()
 
 	sess := &recorderTestSession{
 		t:        t,
 		app:      app,
+		Bili:     biliClient,
 		Recorder: recorderService,
 		Room:     roomService,
 		Danmaku:  danmakuService,
@@ -735,7 +738,7 @@ func runFormatRecordTest(t *testing.T, profile bilibili.StreamProfile, format st
 	}
 
 	sess := newRecorderTestSession(t)
-	roomID := resolveLiveTestRoomID(t, sess.Room)
+	roomID := resolveLiveTestRoomIDWithStream(t, sess, bilibili.WithProfiles(profile))
 
 	baseline := sess.Monitor.snapshotMemory(t, "baseline", true)
 
@@ -801,7 +804,11 @@ func runConcurrentFormatRecordTest(t *testing.T, specs ...concurrentFormatRecord
 	}
 
 	sess := newRecorderTestSession(t)
-	rooms := resolveLiveTestRoomIDs(t, sess.Room, len(specs))
+	slots := make([]liveStreamSlot, len(specs))
+	for i, spec := range specs {
+		slots[i] = liveStreamSlotForProfile(spec.profile)
+	}
+	rooms := resolveLiveTestRoomsForStreamSlots(t, sess, slots)
 	if len(rooms) < len(specs) {
 		t.Fatalf("need %d live rooms, got %d", len(specs), len(rooms))
 	}
@@ -899,7 +906,10 @@ func runZZZFinalConcurrentRecordTest(t *testing.T, profile bilibili.StreamProfil
 	label := fmt.Sprintf("concurrent%d_%s", concurrent, format)
 
 	sess := newRecorderTestSession(t)
-	rooms := resolveLiveTestRoomIDs(t, sess.Room, concurrent)
+	rooms := resolveLiveTestRoomIDsWithStream(t, sess, concurrent,
+		bilibili.WithProfiles(profile),
+		bilibili.WithQn(bilibili.QualityOriginal),
+	)
 	if len(rooms) < concurrent {
 		t.Skipf("need %d live rooms, got %d", concurrent, len(rooms))
 	}

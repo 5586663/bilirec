@@ -39,7 +39,10 @@ func runAudioOnlyRecordForProfile(t *testing.T, profile bilibili.StreamProfile) 
 	recordWait := time.Duration(utils.Ternary(os.Getenv("CI") != "", 2, 1)) * time.Minute
 
 	sess := newRecorderTestSession(t)
-	room := resolveLiveTestRoomID(t, sess.Room)
+	room := resolveLiveTestRoomIDWithStream(t, sess,
+		bilibili.WithProfiles(profile),
+		bilibili.WithOnlyAudio(true),
+	)
 
 	baseline := sess.Monitor.snapshotMemory(t, "baseline", true)
 

@@ -20,7 +20,7 @@ func TestRecorder_Start_CPUSpike_FLV1080p(t *testing.T) {
 	}
 
 	sess := newRecorderTestSession(t)
-	roomID := resolveLiveTestRoomID(t, sess.Room)
+	roomID := resolveLiveTestRoomIDWithStream(t, sess, httpFlvOriginalStreamOpts()...)
 	sess.Room.InvalidateRooms(roomID)
 
 	startOptions := []recorder.RecordStartOption{
@@ -73,7 +73,7 @@ func TestRecorder_Start_CPUSpike_ColdVsWarm(t *testing.T) {
 	}
 
 	sess := newRecorderTestSession(t)
-	roomID := resolveLiveTestRoomID(t, sess.Room)
+	roomID := resolveLiveTestRoomIDWithStream(t, sess, httpFlvOriginalStreamOpts()...)
 	startOptions := []recorder.RecordStartOption{
 		recorder.WithStreamOptions(
 			bilibili.WithProfiles(bilibili.ProfileHTTPFLV),

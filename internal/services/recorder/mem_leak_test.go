@@ -13,10 +13,10 @@ import (
 
 const recorderMemLeakStreamProfileEnv = "RECORDER_MEMLEAK_STREAM_PROFILE"
 
-func memLeakStartOptionsFromEnv() ([]recorder.RecordStartOption, string, error) {
+func memLeakStartOptionsFromEnv() ([]recorder.RecordStartOption, []bilibili.GetStreamURLsOption, string, error) {
 	raw := strings.TrimSpace(os.Getenv(recorderMemLeakStreamProfileEnv))
 	if raw == "" || strings.EqualFold(raw, "auto") {
-		return nil, "", nil
+		return nil, nil, "", nil
 	}
 
 	var profile bilibili.StreamProfile
@@ -28,19 +28,41 @@ func memLeakStartOptionsFromEnv() ([]recorder.RecordStartOption, string, error) 
 	case string(bilibili.ProfileHLSFMP4), "hlsfmp4", "fmp4":
 		profile = bilibili.ProfileHLSFMP4
 	default:
-		return nil, "", fmt.Errorf("invalid %s value %q", recorderMemLeakStreamProfileEnv, raw)
+		return nil, nil, "", fmt.Errorf("invalid %s value %q", recorderMemLeakStreamProfileEnv, raw)
 	}
 
+	streamOpts := []bilibili.GetStreamURLsOption{
+		bilibili.WithProfiles(profile),
+		bilibili.WithQn(bilibili.QualityOriginal),
+	}
 	return []recorder.RecordStartOption{
-		recorder.WithStreamOptions(
-			bilibili.WithProfiles(profile),
-			bilibili.WithQn(bilibili.QualityOriginal),
-		),
-	}, string(profile), nil
+		recorder.WithStreamOptions(streamOpts...),
+	}, streamOpts, string(profile), nil
+}
+
+func resolveMemLeakLiveTestRoomIDs(tb testing.TB, sess *recorderTestSession, required int) []int {
+	tb.Helper()
+	_, streamOpts, _, err := memLeakStartOptionsFromEnv()
+	if err != nil {
+		tb.Fatal(err)
+	}
+	if len(streamOpts) == 0 {
+		return resolveLiveTestRoomIDs(tb, sess.Room, required)
+	}
+	return resolveLiveTestRoomIDsWithStream(tb, sess, required, streamOpts...)
+}
+
+func resolveMemLeakLiveTestRoomID(tb testing.TB, sess *recorderTestSession) int {
+	tb.Helper()
+	rooms := resolveMemLeakLiveTestRoomIDs(tb, sess, 1)
+	if len(rooms) == 0 {
+		tb.Skip("no validated live room id available")
+	}
+	return rooms[0]
 }
 
 func startMemLeakRecording(t *testing.T, sess *recorderTestSession, room int) error {
-	startOptions, profile, err := memLeakStartOptionsFromEnv()
+	startOptions, _, profile, err := memLeakStartOptionsFromEnv()
 	if err != nil {
 		return err
 	}
@@ -64,7 +86,7 @@ func TestRecorder_MemoryLeak_SingleSession(t *testing.T) {
 	}
 
 	sess := newRecorderTestSession(t)
-	roomID := resolveLiveTestRoomID(t, sess.Room)
+	roomID := resolveMemLeakLiveTestRoomID(t, sess)
 
 	baseline := sess.Monitor.snapshotMemory(t, "baseline", true)
 
@@ -137,7 +159,7 @@ func TestRecorder_MemoryLeak_MultipleStartStop(t *testing.T) {
 	}
 
 	sess := newRecorderTestSession(t)
-	roomID := resolveLiveTestRoomID(t, sess.Room)
+	roomID := resolveMemLeakLiveTestRoomID(t, sess)
 
 	baseline := sess.Monitor.snapshotMemory(t, "baseline", true)
 
@@ -199,7 +221,7 @@ func TestRecorder_MemoryLeak_ProcessedDataCleanup(t *testing.T) {
 	}
 
 	sess := newRecorderTestSession(t)
-	roomID := resolveLiveTestRoomID(t, sess.Room)
+	roomID := resolveMemLeakLiveTestRoomID(t, sess)
 
 	baseline := sess.Monitor.snapshotMemory(t, "baseline", true)
 
@@ -244,7 +266,7 @@ func TestRecorder_MemoryLeak_ConcurrentRecordings(t *testing.T) {
 	}
 
 	sess := newRecorderTestSession(t)
-	testRooms := resolveLiveTestRoomIDs(t, sess.Room, 2)
+	testRooms := resolveMemLeakLiveTestRoomIDs(t, sess, 2)
 
 	baseline := sess.Monitor.snapshotMemory(t, "baseline", true)
 	t.Logf("🔀 Testing concurrent recordings for %d rooms", len(testRooms))
@@ -311,7 +333,7 @@ func TestRecorder_Goroutine_Leak(t *testing.T) {
 	}
 
 	sess := newRecorderTestSession(t)
-	roomID := resolveLiveTestRoomID(t, sess.Room)
+	roomID := resolveMemLeakLiveTestRoomID(t, sess)
 
 	time.Sleep(1 * time.Second)
 	baseline := sess.Monitor.snapshotGoroutines(t, "baseline")

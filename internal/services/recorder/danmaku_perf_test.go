@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bilirec/bilirec/internal/modules/bilibili"
 	"github.com/bilirec/bilirec/internal/services/danmaku"
 	"github.com/bilirec/bilirec/internal/services/recorder"
 	"github.com/bilirec/bilirec/utils"
@@ -18,19 +17,13 @@ import (
 func danmakuRecordStartOptions() []recorder.RecordStartOption {
 	return []recorder.RecordStartOption{
 		recorder.WithRecordDanmaku(true),
-		recorder.WithStreamOptions(
-			bilibili.WithProfiles(bilibili.ProfileHTTPFLV),
-			bilibili.WithQn(bilibili.QualityOriginal),
-		),
+		recorder.WithStreamOptions(originalQualityStreamOpts()...),
 	}
 }
 
-func videoOnlyFLVStartOptions() []recorder.RecordStartOption {
+func videoOnlyStartOptions() []recorder.RecordStartOption {
 	return []recorder.RecordStartOption{
-		recorder.WithStreamOptions(
-			bilibili.WithProfiles(bilibili.ProfileHTTPFLV),
-			bilibili.WithQn(bilibili.QualityOriginal),
-		),
+		recorder.WithStreamOptions(originalQualityStreamOpts()...),
 	}
 }
 
@@ -119,7 +112,7 @@ func runDanmakuProfiledRecordTest(t *testing.T, format string, recordDuration ti
 	t.Setenv("DANMAKU_OUTPUT_FORMAT", format)
 
 	sess := newRecorderTestSession(t)
-	roomID := resolveLiveTestRoomID(t, sess.Room)
+	roomID := resolveLiveTestRoomIDWithStream(t, sess, originalQualityStreamOpts()...)
 
 	baseline := sess.Monitor.snapshotMemory(t, "danmaku_baseline", true)
 	baselineG := sess.Monitor.snapshotGoroutines(t, "danmaku_baseline")
@@ -209,7 +202,7 @@ func TestDanmakuRecord_CPUSpike(t *testing.T) {
 
 	t.Setenv("DANMAKU_OUTPUT_FORMAT", "jsonl")
 	sess := newRecorderTestSession(t)
-	roomID := resolveLiveTestRoomID(t, sess.Room)
+	roomID := resolveLiveTestRoomIDWithStream(t, sess, originalQualityStreamOpts()...)
 
 	steadySample := recorderCPUSteadySampleDuration()
 
@@ -259,7 +252,7 @@ func TestDanmakuRecord_MemoryLeak_MultipleStartStop(t *testing.T) {
 
 	t.Setenv("DANMAKU_OUTPUT_FORMAT", "jsonl")
 	sess := newRecorderTestSession(t)
-	roomID := resolveLiveTestRoomID(t, sess.Room)
+	roomID := resolveLiveTestRoomIDWithStream(t, sess, originalQualityStreamOpts()...)
 
 	baseline := sess.Monitor.snapshotMemory(t, "danmaku_cycle_baseline", true)
 
@@ -321,7 +314,7 @@ func TestDanmakuRecord_GoroutineLeak(t *testing.T) {
 
 	t.Setenv("DANMAKU_OUTPUT_FORMAT", "jsonl")
 	sess := newRecorderTestSession(t)
-	roomID := resolveLiveTestRoomID(t, sess.Room)
+	roomID := resolveLiveTestRoomIDWithStream(t, sess, originalQualityStreamOpts()...)
 
 	time.Sleep(time.Second)
 	baseline := sess.Monitor.snapshotGoroutines(t, "danmaku_goroutine_baseline")
@@ -371,13 +364,13 @@ func TestDanmakuRecord_DeltaVsVideoOnly(t *testing.T) {
 
 	t.Setenv("DANMAKU_OUTPUT_FORMAT", "jsonl")
 	sess := newRecorderTestSession(t)
-	roomID := resolveLiveTestRoomID(t, sess.Room)
+	roomID := resolveLiveTestRoomIDWithStream(t, sess, originalQualityStreamOpts()...)
 
 	const window = 20 * time.Second
 
 	measure := func(label string, withDanmaku bool) (cpuPhaseReport, float64, int) {
 		t.Helper()
-		opts := videoOnlyFLVStartOptions()
+		opts := videoOnlyStartOptions()
 		if withDanmaku {
 			opts = danmakuRecordStartOptions()
 		}
@@ -482,7 +475,7 @@ func runDanmakuConcurrentRecordTest(t *testing.T, concurrent int, recordDuration
 
 	label := fmt.Sprintf("concurrent%d_danmaku_jsonl", concurrent)
 	sess := newRecorderTestSession(t)
-	rooms := resolveLiveTestRoomIDs(t, sess.Room, concurrent)
+	rooms := resolveLiveTestRoomIDsWithStream(t, sess, concurrent, originalQualityStreamOpts()...)
 	if len(rooms) < concurrent {
 		t.Skipf("need %d live rooms, got %d", concurrent, len(rooms))
 	}
