@@ -18,7 +18,7 @@ on:
       - '.github/actions/prepare-build-version/**'
   release:
     types:
-      - created
+      - published
   workflow_dispatch:
 
 
