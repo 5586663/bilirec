@@ -62,11 +62,12 @@ const (
 )
 
 const (
-	LiveStateLiveDetected      LiveState = "live_detected"
-	LiveStateAutoRecordStarted LiveState = "live_auto_record_started"
-	LiveStateAutoRecordFailed  LiveState = "live_auto_record_failed"
-	LiveStateLiveEnded         LiveState = "live_ended"
-	LiveStateRecordStopped     LiveState = "live_record_stopped"
+	LiveStateLiveDetected           LiveState = "live_detected"
+	LiveStateAutoRecordStarted      LiveState = "live_auto_record_started"
+	LiveStateAutoRecordRetryStarted LiveState = "live_auto_record_retry_started"
+	LiveStateAutoRecordFailed       LiveState = "live_auto_record_failed"
+	LiveStateLiveEnded              LiveState = "live_ended"
+	LiveStateRecordStopped          LiveState = "live_record_stopped"
 )
 
 func NewService(lc fx.Lifecycle, cfg *config.Config) (*Service, error) {
@@ -137,6 +138,8 @@ func (s *Service) PublishLiveState(roomID int, streamer string, roomTitle string
 		message = "直播間已開播"
 	case LiveStateAutoRecordStarted:
 		message = "直播間已開播並已啟動錄製"
+	case LiveStateAutoRecordRetryStarted:
+		message = "直播間錄製已重試並啟動"
 	case LiveStateAutoRecordFailed:
 		message = "直播間已開播但錄製啟動失敗"
 	case LiveStateLiveEnded:

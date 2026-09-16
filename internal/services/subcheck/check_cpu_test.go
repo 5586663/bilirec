@@ -246,12 +246,13 @@ func newSubcheckTestSession(t *testing.T) *subcheckTestSession {
 	}
 
 	service := &Service{
-		m:           &metrics.Exporter{},
-		subSvc:      subSvc,
-		roomSvc:     roomSvc,
-		notifySvc:   notifySvc,
-		bucket:      bucket,
-		sessionKeys: xsync.NewMap[int, string](),
+		m:              &metrics.Exporter{},
+		subSvc:         subSvc,
+		roomSvc:        roomSvc,
+		notifySvc:      notifySvc,
+		bucket:         bucket,
+		sessionKeys:    xsync.NewMap[int, string](),
+		autoStartRetry: xsync.NewMap[int, autoStartRetry](),
 	}
 
 	return &subcheckTestSession{

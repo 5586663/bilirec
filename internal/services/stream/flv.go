@@ -2,6 +2,7 @@ package stream
 
 import (
 	"context"
+	"errors"
 	"io"
 	"time"
 
@@ -45,7 +46,9 @@ func (r *Service) readFlv(
 				r.putChunk(chunkPool, buf)
 				return
 			} else if err != nil {
-				log.Errorf("读取直播流失败：%v", err)
+				if ctx.Err() == nil && !errors.Is(err, context.Canceled) {
+					log.Errorf("读取直播流失败：%v", err)
+				}
 				r.putChunk(chunkPool, buf)
 				return
 			}

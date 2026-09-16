@@ -1,12 +1,16 @@
 package subcheck
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"path/filepath"
 	"strconv"
 	"testing"
 
 	"github.com/bilirec/bilirec/internal/modules/bilibili"
 	"github.com/bilirec/bilirec/internal/modules/metrics"
+	"github.com/bilirec/bilirec/internal/services/recorder"
 	"github.com/bilirec/bilirec/internal/services/subscribe"
 	"github.com/bilirec/bilirec/pkg/db"
 	"github.com/puzpuzpuz/xsync/v4"
@@ -372,8 +376,105 @@ func newTestServiceWithBucket(t *testing.T) *Service {
 	}
 
 	return &Service{
-		m:           &metrics.Exporter{},
-		bucket:      bucket,
-		sessionKeys: xsync.NewMap[int, string](),
+		m:              &metrics.Exporter{},
+		bucket:         bucket,
+		sessionKeys:    xsync.NewMap[int, string](),
+		autoStartRetry: xsync.NewMap[int, autoStartRetry](),
+	}
+}
+
+func TestIsTransientAutoStartError(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		err  error
+		want bool
+	}{
+		{err: nil, want: false},
+		{err: recorder.ErrRecordingStarted, want: false},
+		{err: recorder.ErrRecordRecovering, want: false},
+		{err: recorder.ErrRecordingPending, want: false},
+		{err: context.Canceled, want: false},
+		{err: recorder.ErrRoomBanned, want: false},
+		{err: recorder.ErrRoomEncrypted, want: false},
+		{err: recorder.ErrEmptyStreamURLs, want: true},
+		{err: recorder.ErrStreamURLsUnreachable, want: true},
+		{err: recorder.ErrLiveAPI, want: true},
+		{err: recorder.ErrMaxConcurrentRecordingsReached, want: true},
+		{err: recorder.ErrInsufficientDiskSpace, want: true},
+		{err: recorder.ErrStreamNotLive, want: true},
+		{err: errors.New("other"), want: true},
+		{err: fmt.Errorf("%w: timeout", recorder.ErrLiveAPI), want: true},
+	}
+	for _, tc := range cases {
+		if got := isTransientAutoStartError(tc.err); got != tc.want {
+			t.Errorf("isTransientAutoStartError(%v) = %v, want %v", tc.err, got, tc.want)
+		}
+	}
+}
+
+func TestAutoStartRetry_DoesNotMarkUntilLimit(t *testing.T) {
+	service := newTestServiceWithBucket(t)
+	const roomID = 4101
+	const sessionKey = "live_id_str:retry-until-limit"
+	err := recorder.ErrEmptyStreamURLs
+
+	for attempt := 1; attempt <= maxAutoStartAttempts; attempt++ {
+		retrying := isTransientAutoStartError(err) && attempt < maxAutoStartAttempts
+		if attempt < maxAutoStartAttempts && !retrying {
+			t.Fatalf("attempt %d should still retry", attempt)
+		}
+		if attempt == maxAutoStartAttempts && retrying {
+			t.Fatal("attempt 5 should stop retrying")
+		}
+		if retrying {
+			service.autoStartRetry.Store(roomID, autoStartRetry{sessionKey: sessionKey, attempts: attempt})
+			if _, loaded := service.sessionKeys.Load(roomID); loaded {
+				t.Fatalf("session should stay unmarked at attempt %d", attempt)
+			}
+			retry, loaded := service.autoStartRetry.Load(roomID)
+			if !loaded || retry.attempts != attempt {
+				t.Fatalf("retry state at attempt %d = (%+v, %v)", attempt, retry, loaded)
+			}
+			continue
+		}
+		service.autoStartRetry.Delete(roomID)
+		service.markSessionState(roomID, sessionKey)
+	}
+
+	stored, loaded := service.sessionKeys.Load(roomID)
+	if !loaded || stored != sessionKey {
+		t.Fatalf("session after limit = (%q, %v), want marked", stored, loaded)
+	}
+	if _, loaded = service.autoStartRetry.Load(roomID); loaded {
+		t.Fatal("retry state should be cleared after giving up")
+	}
+}
+
+func TestIsTransientAutoStartError_PermanentDoesNotRetry(t *testing.T) {
+	if isTransientAutoStartError(recorder.ErrRoomBanned) {
+		t.Fatal("banned rooms should not retry")
+	}
+}
+
+func TestClearSessionState_ClearsRetry(t *testing.T) {
+	service := newTestServiceWithBucket(t)
+	const roomID = 4103
+	const sessionKey = "live_id_str:offline"
+
+	service.autoStartRetry.Store(roomID, autoStartRetry{sessionKey: sessionKey, attempts: 2})
+	service.clearSessionState(roomID)
+	if _, loaded := service.autoStartRetry.Load(roomID); loaded {
+		t.Fatal("clearSessionState should drop retry state even when session was unmarked")
+	}
+
+	service.markSessionState(roomID, sessionKey)
+	service.autoStartRetry.Store(roomID, autoStartRetry{sessionKey: sessionKey, attempts: 1})
+	service.clearSessionState(roomID)
+	if _, loaded := service.sessionKeys.Load(roomID); loaded {
+		t.Fatal("expected session key cleared")
+	}
+	if _, loaded := service.autoStartRetry.Load(roomID); loaded {
+		t.Fatal("expected retry state cleared with session")
 	}
 }

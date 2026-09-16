@@ -2,6 +2,7 @@ package subcheck
 
 import (
 	"context"
+	"errors"
 	"math/rand"
 	"os"
 	"strconv"
@@ -25,19 +26,28 @@ import (
 
 var log = logger.Named("subcheck")
 
-const sessionKeysBucketName = "SubCheck_LiveStates"
+const (
+	sessionKeysBucketName = "SubCheck_LiveStates"
+	maxAutoStartAttempts  = 5
+)
+
+type autoStartRetry struct {
+	sessionKey string
+	attempts   int
+}
 
 type Service struct {
-	subSvc      *subscribe.Service
-	roomSvc     *room.Service
-	recSvc      *recorder.Service
-	notifySvc   *notify.Service
-	m           *metrics.Exporter
-	bucket      *db.Bucket
-	sessionKeys *xsync.Map[int, string]
-	coordinator *coordinator.RoundRobin
-	shardCount  int
-	shardStops  []func()
+	subSvc         *subscribe.Service
+	roomSvc        *room.Service
+	recSvc         *recorder.Service
+	notifySvc      *notify.Service
+	m              *metrics.Exporter
+	bucket         *db.Bucket
+	sessionKeys    *xsync.Map[int, string]
+	autoStartRetry *xsync.Map[int, autoStartRetry]
+	coordinator    *coordinator.RoundRobin
+	shardCount     int
+	shardStops     []func()
 
 	checkInterval  time.Duration
 	scheduleParams scheduleParams
@@ -53,14 +63,15 @@ type Service struct {
 func NewService(lc fx.Lifecycle, cfg *config.Config, subSvc *subscribe.Service, roomSvc *room.Service, recSvc *recorder.Service, notifySvc *notify.Service, m *metrics.Exporter) *Service {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Service{
-		subSvc:      subSvc,
-		roomSvc:     roomSvc,
-		recSvc:      recSvc,
-		notifySvc:   notifySvc,
-		m:           m,
-		sessionKeys: xsync.NewMap[int, string](),
-		ctx:         ctx,
-		cancel:      cancel,
+		subSvc:         subSvc,
+		roomSvc:        roomSvc,
+		recSvc:         recSvc,
+		notifySvc:      notifySvc,
+		m:              m,
+		sessionKeys:    xsync.NewMap[int, string](),
+		autoStartRetry: xsync.NewMap[int, autoStartRetry](),
+		ctx:            ctx,
+		cancel:         cancel,
 	}
 
 	lc.Append(fx.StartStopHook(
@@ -247,14 +258,19 @@ func (s *Service) tryStartShardAutoRecordRooms(shardIndex, shardCount int) {
 			continue
 		}
 
-		log.Debugf("new live session detected for room %d (%s), key: %s", roomID, info.Uname, currentSessionKey)
-		s.m.LiveSessionDetected(roomID)
+		retry, isRetry := s.autoStartRetry.Load(roomID)
+		isRetry = isRetry && retry.sessionKey == currentSessionKey
+		if !isRetry {
+			log.Debugf("new live session detected for room %d (%s), key: %s", roomID, info.Uname, currentSessionKey)
+			s.m.LiveSessionDetected(roomID)
+		}
+
 		state := notify.LiveStateLiveDetected
+		markNow := true
 
 		if cfg != nil && cfg.AutoRecord {
 			status := s.recSvc.GetStatus(roomID)
 			if status != recorder.Recording && status != recorder.Recovering {
-				// Resolve duration from subscription config: -1 = unlimited, >0 = custom minutes.
 				var autoRecordArgs []recorder.RecordStartOption
 				switch {
 				case cfg.RecordDurationMinutes == -1:
@@ -262,7 +278,6 @@ func (s *Service) tryStartShardAutoRecordRooms(shardIndex, shardCount int) {
 				case cfg.RecordDurationMinutes > 0:
 					autoRecordArgs = append(autoRecordArgs, recorder.WithDuration(time.Duration(cfg.RecordDurationMinutes)*time.Minute))
 				}
-
 				streamOptions := streamOptionsFromRoomConfig(cfg)
 				if len(streamOptions) > 0 {
 					autoRecordArgs = append(autoRecordArgs, recorder.WithStreamOptions(streamOptions...))
@@ -274,21 +289,50 @@ func (s *Service) tryStartShardAutoRecordRooms(shardIndex, shardCount int) {
 				err := s.recSvc.Start(roomID, autoRecordArgs...)
 				switch err {
 				case nil, recorder.ErrRecordingStarted, recorder.ErrRecordRecovering, recorder.ErrRecordingPending:
-					state = notify.LiveStateAutoRecordStarted
+					if isRetry {
+						state = notify.LiveStateAutoRecordRetryStarted
+					} else {
+						state = notify.LiveStateAutoRecordStarted
+					}
 					log.Infof("已开始录制房间 %d（%s）", roomID, info.Uname)
 				default:
-					state = notify.LiveStateAutoRecordFailed
-					log.Warnf("开始录制房间 %d 失败：%v", roomID, err)
+					attempts := 1
+					if isRetry {
+						attempts = retry.attempts + 1
+					}
+					if isTransientAutoStartError(err) && attempts < maxAutoStartAttempts {
+						s.autoStartRetry.Store(roomID, autoStartRetry{sessionKey: currentSessionKey, attempts: attempts})
+						markNow = false
+					}
+					if !isRetry {
+						state = notify.LiveStateAutoRecordFailed
+					}
+					log.Warnf("开始录制房间 %d 失败（%d/%d）：%v", roomID, attempts, maxAutoStartAttempts, err)
 				}
 			}
 		}
 
-		if cfg != nil && cfg.Notify {
+		if cfg != nil && cfg.Notify && (!isRetry || state == notify.LiveStateAutoRecordRetryStarted) {
 			s.notifySvc.PublishLiveState(roomID, info.Uname, info.Title, state)
 		}
-
-		s.markSessionState(roomID, currentSessionKey)
+		if markNow {
+			s.autoStartRetry.Delete(roomID)
+			s.markSessionState(roomID, currentSessionKey)
+		}
 	}
+}
+
+func isTransientAutoStartError(err error) bool {
+	if err == nil ||
+		errors.Is(err, recorder.ErrRecordingStarted) ||
+		errors.Is(err, recorder.ErrRecordRecovering) ||
+		errors.Is(err, recorder.ErrRecordingPending) ||
+		errors.Is(err, context.Canceled) ||
+		errors.Is(err, recorder.ErrRoomBanned) ||
+		errors.Is(err, recorder.ErrRoomEncrypted) {
+		return false
+	}
+	return true
 }
 
 func streamOptionsFromRoomConfig(cfg *subscribe.RoomConfig) []bilibili.GetStreamURLsOption {
@@ -320,6 +364,7 @@ func (s *Service) markSessionState(roomID int, sessionKey string) {
 }
 
 func (s *Service) clearSessionState(roomID int) {
+	s.autoStartRetry.Delete(roomID)
 	_, loaded := s.sessionKeys.LoadAndDelete(roomID)
 	if !loaded {
 		return
