@@ -50,11 +50,13 @@ func (r *Service) internalStart(p internalStartParams) error {
 		return err
 	}
 
-	diskSpace, err := utils.GetDiskSpace(r.cfg.OutputDir)
-	if err != nil {
-		l.Warnf("cannot check disk space: %v", err)
-	} else if diskSpace.Free < uint64(r.cfg.MinDiskSpaceBytes) {
-		return ErrInsufficientDiskSpace
+	if r.cfg.MinDiskSpaceBytes > 0 {
+		diskSpace, err := utils.GetDiskSpace(r.cfg.OutputDir)
+		if err != nil {
+			l.Warnf("cannot check disk space: %v", err)
+		} else if isInsufficientDiskSpace(diskSpace.Free, r.cfg.MinDiskSpaceBytes) {
+			return ErrInsufficientDiskSpace
+		}
 	}
 
 	startTimeRoomInfo := time.Now()
@@ -143,6 +145,13 @@ func (r *Service) internalStart(p internalStartParams) error {
 
 	l.Warn("no more url left")
 	return ErrStreamURLsUnreachable
+}
+
+func isInsufficientDiskSpace(free uint64, minimum int64) bool {
+	if minimum <= 0 {
+		return false
+	}
+	return free < uint64(minimum)
 }
 
 func (r *Service) sessionReadyForConfirm(p internalStartParams) bool {
