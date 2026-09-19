@@ -37,6 +37,8 @@ func inferPlaybackMIME(path string) (string, error) {
 	switch ext {
 	case ".mp4":
 		return "video/mp4", nil
+	case ".m4a":
+		return "audio/mp4", nil
 	default:
 		return "", ErrUnsupportedPlaybackMedia
 	}

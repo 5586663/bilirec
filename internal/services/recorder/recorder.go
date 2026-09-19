@@ -297,7 +297,7 @@ func (r *Service) rev(roomId int, ch <-chan []byte, info *Info, ctx context.Cont
 		r.m.StreamConnectionActive(roomId, false)
 		pipe.Close()
 		outputPath := info.OutputPath()
-		go r.finalize(roomId, outputPath)
+		go r.finalize(roomId, outputPath, info.isAudioOnly.Load())
 	}()
 	for data := range ch {
 		info.bytesRead.Add(uint64(len(data)))
@@ -463,7 +463,7 @@ func (r *Service) recover(roomId int) {
 	}
 }
 
-func (r *Service) finalize(roomId int, outputPath string) {
+func (r *Service) finalize(roomId int, outputPath string, audioOnly bool) {
 	if outputPath == "" {
 		log.Warnf("跳过房间 %d 的收尾：输出路径为空", roomId)
 		return
@@ -490,7 +490,7 @@ func (r *Service) finalize(roomId int, outputPath string) {
 	}
 
 	if !r.cfg.ConvertToMp4 {
-		log.Debug("不需要转换为 mp4，跳过收尾")
+		log.Debug("不需要转换，跳过收尾")
 		return
 	}
 
@@ -506,9 +506,9 @@ func (r *Service) finalize(roomId int, outputPath string) {
 	}
 
 	// process finalization via convert service
-	if queue, err := r.cv.Enqueue(outputPath, "mp4", r.cfg.DeleteSourceAfterConvert); err != nil {
+	if queue, err := r.cv.Enqueue(outputPath, utils.Ternary(audioOnly, "m4a", "mp4"), r.cfg.DeleteSourceAfterConvert); err != nil {
 		log.Errorf("为房间 %d 入队转码失败：%v", roomId, err)
-		log.Warnf("你可能需要为房间 %d 手动转码 mp4", roomId)
+		log.Warnf("你可能需要为房间 %d 手动转码", roomId)
 	} else {
 		log.Infof("已为房间 %d 入队转码任务：%s", roomId, queue.TaskID)
 		log.Infof("输出路径将是：%s", queue.OutputPath)

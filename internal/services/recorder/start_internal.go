@@ -280,6 +280,7 @@ func (r *Service) connectStream(
 			latestStreams, fetchErr := r.bilic.GetStreamURLsV2(roomId,
 				bilibili.WithProfiles(profile),
 				bilibili.WithQn(bilibili.Quality(streamInfo.Qn)),
+				bilibili.WithOnlyAudio(streamInfo.IsAudioOnly),
 			)
 			if fetchErr != nil {
 				return "", fetchErr

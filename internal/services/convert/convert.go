@@ -77,7 +77,7 @@ func NewService(ls fx.Lifecycle, cfg *config.Config, pathSvc *path.Service, metr
 	} else {
 		log.Warn("ffmpeg 不可用，ffmpeg 转码管理器未初始化")
 	}
-	
+
 	svc.metrics.enabled = cfg.ConvertToMp4 && len(svc.managers) > 0
 
 	stop := func() error {
@@ -135,7 +135,7 @@ func (s *Service) Enqueue(path, format string, deleteSource bool) (*TaskQueue, e
 	} else {
 		manager = s.managers["ffmpeg"]
 	}
-	if pass, err := s.checkOriginalFile(path); err != nil {
+	if pass, err := s.checkOriginalFile(path, format != "m4a"); err != nil {
 		if !pass && s.noConvertIfInvalid {
 			return nil, err
 		}

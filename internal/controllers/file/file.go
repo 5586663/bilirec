@@ -57,14 +57,15 @@ func NewController(
 	return fc
 }
 
-// @Summary Playback a video file
-// @Description Stream a video file inline for browser playback (VOD only)
+// @Summary Playback a media file
+// @Description Stream an MP4 video or M4A audio file inline for browser playback (VOD only)
 // @Tags files
 // @Security BearerAuth
 // @Accept json
 // @Produce video/mp4
-// @Param path path string true "Video file path"
-// @Success 200 {file} binary "Video stream"
+// @Produce audio/mp4
+// @Param path path string true "Media file path"
+// @Success 200 {file} binary "Media stream"
 // @Failure 400 {string} string "Bad request"
 // @Failure 403 {string} string "Forbidden"
 // @Failure 404 {string} string "Not found"

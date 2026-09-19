@@ -3,6 +3,7 @@ package convert
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -266,8 +267,9 @@ func (f *ffmpegConvertManager) processTask(ctx context.Context, queue *TaskQueue
 		return nil
 	}
 
+	muxer := utils.Ternary(strings.EqualFold(queue.OutputFormat, "m4a"), "mp4", queue.OutputFormat)
 	if utils.IsFileExists(queue.OutputPath) {
-		if err := validateOutputContainer(ctx, taskLog, queue.OutputPath, queue.OutputFormat); err == nil {
+		if err := validateOutputContainer(ctx, taskLog, queue.OutputPath, muxer); err == nil {
 			taskLog.Infof("输出文件 %s 已存在且校验通过，跳过转码", queue.OutputPath)
 			return nil
 		} else {
@@ -296,13 +298,13 @@ func (f *ffmpegConvertManager) processTask(ctx context.Context, queue *TaskQueue
 		"-c",
 		"copy",
 		"-f",
-		queue.OutputFormat,
+		muxer,
 		staging,
 	); err != nil {
 		return err
 	}
 
-	if err := validateOutputContainer(ctx, taskLog, staging, queue.OutputFormat); err != nil {
+	if err := validateOutputContainer(ctx, taskLog, staging, muxer); err != nil {
 		return err
 	}
 	if err := utils.ReplaceFile(staging, queue.OutputPath); err != nil {

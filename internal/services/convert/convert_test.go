@@ -1,6 +1,25 @@
 package convert
 
-import "testing"
+import (
+	"context"
+	"strings"
+	"testing"
+)
+
+func TestCheckOriginalFileM4ASkipsVideoValidation(t *testing.T) {
+	svc := &Service{ctx: context.Background()}
+
+	_, err := svc.checkOriginalFile("missing-audio-only.flv", false)
+	if err == nil {
+		t.Fatal("expected the audio validation to fail for a missing input")
+	}
+	if !strings.Contains(err.Error(), "音频流") {
+		t.Fatalf("error = %q, want an audio-stream validation error", err)
+	}
+	if strings.Contains(err.Error(), "视频流") {
+		t.Fatalf("error = %q, audio-only validation should skip video validation", err)
+	}
+}
 
 func TestAllowConvertDuringRecording(t *testing.T) {
 	tests := []struct {

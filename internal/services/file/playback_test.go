@@ -44,6 +44,37 @@ func TestOpenForPlaybackMP4(t *testing.T) {
 	}
 }
 
+func TestOpenForPlaybackM4A(t *testing.T) {
+	tempDir := t.TempDir()
+	os.Setenv("OUTPUT_DIR", tempDir)
+
+	filePath := filepath.Join(tempDir, "test.m4a")
+	if err := os.WriteFile(filePath, []byte("123"), 0644); err != nil {
+		t.Fatalf("failed to create m4a test file: %v", err)
+	}
+
+	var svc *file.Service
+	app := fxtest.New(t,
+		config.Module,
+		fx.Provide(path.NewService),
+		fx.Provide(file.NewService),
+		fx.Populate(&svc),
+	)
+	app.RequireStart()
+	defer app.RequireStop()
+
+	fullPath, mimeType, err := svc.OpenForPlayback("test.m4a")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if fullPath != filePath {
+		t.Fatalf("expected full path %s, got %s", filePath, fullPath)
+	}
+	if mimeType != "audio/mp4" {
+		t.Fatalf("expected mime audio/mp4, got %s", mimeType)
+	}
+}
+
 func TestOpenForPlaybackUnsupportedMedia(t *testing.T) {
 	tempDir := t.TempDir()
 	os.Setenv("OUTPUT_DIR", tempDir)
