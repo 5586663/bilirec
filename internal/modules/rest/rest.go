@@ -52,8 +52,8 @@ import (
 const jwtTokenKey = "jwtToken"
 
 const (
-	mediaStreamCacheControl = "public, max-age=86400"
-	defaultNoCacheControl   = "no-store, no-cache, must-revalidate"
+	fileStreamCacheControl = "public, max-age=86400"
+	defaultNoCacheControl  = "no-store, no-cache, must-revalidate"
 )
 
 var log = logger.Named("rest")
@@ -124,8 +124,8 @@ func provider(ls fx.Lifecycle, cfg *config.Config) *fiber.App {
 		err := c.Next()
 
 		contentType := strings.ToLower(c.GetRespHeader(fiber.HeaderContentType))
-		if isMediaStreamContentType(contentType) {
-			c.Set(fiber.HeaderCacheControl, mediaStreamCacheControl)
+		if isCacheableFileContentType(contentType) {
+			c.Set(fiber.HeaderCacheControl, fileStreamCacheControl)
 			return err
 		}
 
@@ -242,12 +242,16 @@ func startHttpServer(app *fiber.App, wg *sync.WaitGroup, addr string, cfg *confi
 	return nil
 }
 
-func isMediaStreamContentType(contentType string) bool {
+func isCacheableFileContentType(contentType string) bool {
 	return strings.HasPrefix(contentType, "video/") ||
 		strings.HasPrefix(contentType, "audio/") ||
 		strings.HasPrefix(contentType, "application/vnd.apple.mpegurl") ||
 		strings.HasPrefix(contentType, "application/x-mpegurl") ||
-		strings.HasPrefix(contentType, "application/dash+xml")
+		strings.HasPrefix(contentType, "application/dash+xml") ||
+		strings.HasPrefix(contentType, "application/x-ndjson") ||
+		strings.HasPrefix(contentType, "application/jsonl") ||
+		strings.HasPrefix(contentType, "application/xml") ||
+		strings.HasPrefix(contentType, "text/xml")
 }
 
 func resolveSwaggerFilePath() (string, bool) {
