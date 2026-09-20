@@ -2,6 +2,16 @@ package ds
 
 import "testing"
 
+func TestSetFrom(t *testing.T) {
+	s := SetFrom("a", "b", "a")
+	if s.Size() != 2 {
+		t.Fatalf("expected size 2, got %d", s.Size())
+	}
+	if !s.Contains("a") || !s.Contains("b") {
+		t.Fatal("expected a and b in set")
+	}
+}
+
 func TestAtomicSetLoadAndStoreAndDelete(t *testing.T) {
 	set := NewSyncedSet[string]()
 

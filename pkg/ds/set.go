@@ -24,3 +24,19 @@ func NewSet[T comparable]() Set[T] {
 func NewSyncedSet[T comparable]() Set[T] {
 	return &syncedSet[T]{set: NewSet[T]()}
 }
+
+func SetFrom[T comparable](arr ...T) Set[T] {
+	s := NewSet[T]()
+	for _, e := range arr {
+		s.Add(e)
+	}
+	return s
+}
+
+func SyncedSetFrom[T comparable](arr ...T) Set[T] {
+	s := NewSyncedSet[T]()
+	for _, e := range arr {
+		s.Add(e)
+	}
+	return s
+}
