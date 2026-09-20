@@ -48,10 +48,11 @@ type PagedTree struct {
 }
 
 type ListOptions struct {
-	Filter func(fs.DirEntry) bool // nil = no filter
-	Search string                 // empty = no search
-	Offset int
-	Limit  int // 0 = all
+	Filter    func(fs.DirEntry) bool // nil = no filter
+	Search    string                 // empty = no search
+	OnlyMedia bool                   // keep directories; hide non-media files
+	Offset    int
+	Limit     int // 0 = all
 }
 
 func NewService(ls fx.Lifecycle, cfg *config.Config, pathSvc *path.Service) *Service {
@@ -138,6 +139,9 @@ func (s *Service) ListTreeWithOptions(path string, opts ListOptions) (*PagedTree
 			continue
 		}
 		if opts.Search != "" && !strings.Contains(strings.ToLower(entry.Name()), strings.ToLower(opts.Search)) {
+			continue
+		}
+		if opts.OnlyMedia && !entry.IsDir() && !IsRecordingMediaFilename(entry.Name()) {
 			continue
 		}
 		filtered = append(filtered, entry)

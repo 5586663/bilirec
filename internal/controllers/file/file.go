@@ -163,6 +163,7 @@ func (c *Controller) sendFileWithIdleCacheRelease(ctx fiber.Ctx, fullPath string
 // @Param offset query int false "Offset (default 0)"
 // @Param limit query int false "Limit (default 0 = all, max 200)"
 // @Param search query string false "Search by filename (case-insensitive)"
+// @Param only_media query bool false "When true, list only directories and media files (mp4, m4a, ts, fmp4, flv)"
 // @Success 200 {object} file.PagedTree "Paged list of files and directories"
 // @Failure 400 {string} string "Invalid path"
 // @Failure 403 {string} string "Forbidden"
@@ -184,13 +185,16 @@ func (c *Controller) listFiles(ctx fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "limit 必须为 0 至 200 之间的整数")
 	}
 
+	onlyMedia, _ := strconv.ParseBool(ctx.Query("only_media", "false"))
+
 	paged, err := c.fileSvc.ListTreeWithOptions(path, file.ListOptions{
 		Filter: func(f fs.DirEntry) bool {
 			return !strings.HasSuffix(f.Name(), ".tmp")
 		},
-		Search: ctx.Query("search"),
-		Offset: offset,
-		Limit:  limit,
+		Search:    ctx.Query("search"),
+		OnlyMedia: onlyMedia,
+		Offset:    offset,
+		Limit:     limit,
 	})
 	if err != nil {
 		log.Warnf("列出路径 %s 的目录失败：%v", path, err)

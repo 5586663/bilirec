@@ -13,6 +13,22 @@ import (
 	"go.uber.org/fx/fxtest"
 )
 
+func TestIsRecordingMediaFilename(t *testing.T) {
+	media := []string{"a.mp4", "b.M4A", "c.ts", "seg.fmp4", "live.flv"}
+	for _, name := range media {
+		if !file.IsRecordingMediaFilename(name) {
+			t.Fatalf("%q should be media", name)
+		}
+	}
+
+	nonMedia := []string{"danmaku.jsonl", "danmaku.xml", "notes.log", "readme", "dir"}
+	for _, name := range nonMedia {
+		if file.IsRecordingMediaFilename(name) {
+			t.Fatalf("%q should not be media", name)
+		}
+	}
+}
+
 func TestOpenForPlaybackMP4(t *testing.T) {
 	tempDir := t.TempDir()
 	os.Setenv("OUTPUT_DIR", tempDir)
