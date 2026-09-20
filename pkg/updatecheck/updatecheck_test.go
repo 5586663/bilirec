@@ -3,6 +3,7 @@ package updatecheck
 import (
 	"testing"
 )
+
 func TestShouldCheck_NoInjectedVersion(t *testing.T) {
 	old := currentVersionInjected
 	currentVersionInjected = ""
@@ -48,7 +49,7 @@ func TestCached_BeforeCheck(t *testing.T) {
 	if res.Checked {
 		t.Fatal("expected checked false before Check()")
 	}
-	if res.URL != releasesURL {
+	if res.URL != releasePageURL {
 		t.Fatalf("expected releases URL, got %q", res.URL)
 	}
 }

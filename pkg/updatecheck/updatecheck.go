@@ -15,7 +15,6 @@ import (
 const (
 	githubOwner      = "bilirec"
 	githubRepository = "bilirec"
-	releasesURL      = "https://github.com/bilirec/bilirec/releases/latest"
 )
 
 // currentVersionInjected is set at build time for production releases.
@@ -55,7 +54,7 @@ func Cached() Result {
 func Check() (Result, error) {
 	current := Current()
 	if current == "" {
-		res := Result{Current: "", URL: releasesURL}
+		res := Result{Current: "", URL: releasePageURL}
 		setCache(res)
 		return res, nil
 	}
@@ -65,6 +64,9 @@ func Check() (Result, error) {
 		Owner:             githubOwner,
 		Repository:        githubRepository,
 		FixVersionStrFunc: latest.DeleteFrontV(),
+	}
+	if apiBase := githubAPIBaseURL(); apiBase != "" {
+		githubTag.URL = apiBase
 	}
 
 	checkRes, err := latest.Check(githubTag, target)
@@ -86,7 +88,7 @@ func Check() (Result, error) {
 		Latest:   latestTag,
 		Outdated: checkRes.Outdated,
 		Checked:  true,
-		URL:      releasesURL,
+		URL:      releasePageURL,
 	}
 	setCache(res)
 	return res, nil
@@ -144,6 +146,6 @@ func snapshotLocked() Result {
 	}
 	return Result{
 		Current: Current(),
-		URL:     releasesURL,
+		URL:     releasePageURL,
 	}
 }
