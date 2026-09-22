@@ -53,6 +53,7 @@ type Service struct {
 	notifySvc   *notify.Service
 	m           *metrics.Exporter
 	bucket      *db.Bucket
+	sessionKeys *xsync.Map[int, string]
 	sessionKeyTimes *xsync.Map[int, int64]
 	coordinator *coordinator.RoundRobin
 	shardCount  int
@@ -77,6 +78,7 @@ func NewService(lc fx.Lifecycle, cfg *config.Config, subSvc *subscribe.Service, 
 		recSvc:      recSvc,
 		notifySvc:   notifySvc,
 		m:           m,
+		sessionKeys: xsync.NewMap[int, string](),
 		sessionKeyTimes: xsync.NewMap[int, int64](),
 		ctx:         ctx,
 		cancel:      cancel,
