@@ -280,13 +280,13 @@ func (s *Service) tryStartShardAutoRecordRooms(shardIndex, shardCount int) {
 		// 若你的场景中 recorder 经常中途挂掉，取消下面注释即可启用。
 		// 一般情况下不需要。
 		// -----------------------------------------------------------------
-		// if _, loaded := s.sessionKeys.Load(roomID); loaded {
-		// 	status := s.recSvc.GetStatus(roomID)
-		// 	if status != recorder.Recording && status != recorder.Recovering {
-		// 		log.Warnf("房间 %d sessionKey 陈旧（录制未激活），清理并重试", roomID)
-		// 		s.clearSessionState(roomID)
-		// 	}
-		// }
+		if _, loaded := s.sessionKeys.Load(roomID); loaded {
+			status := s.recSvc.GetStatus(roomID)
+			if status != recorder.Recording && status != recorder.Recovering {
+				log.Warnf("房间 %d sessionKey 陈旧（录制未激活），清理并重试", roomID)
+				s.clearSessionState(roomID)
+			}
+		}
 
 		storedSessionKey, loaded := s.sessionKeys.Load(roomID)
 		if loaded && storedSessionKey == currentSessionKey {
