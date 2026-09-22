@@ -23,6 +23,19 @@ import (
 	"go.uber.org/fx"
 )
 
+// =============================================================================
+// 修改说明
+//
+// 本文件基于 bilirec v0.2.0 官方源码修改，修复「陈旧 sessionKey 导致停止录制」问题。
+//
+// 应用了三处改动：
+//   补丁 1（start 函数）：启动时清空历史 sessionKey
+//   补丁 2（tryStartShardAutoRecordRooms 主循环）：markSessionState 只在启动成功时调用
+//   补丁 3（tryStartShardAutoRecordRooms 主循环）：可选的自愈检查，默认以注释形式保留
+//
+// 完整分析见同目录 01-bug-analysis.md、02-patch.md、03-build-and-deploy.md
+// =============================================================================
+
 var log = logger.Named("subcheck")
 
 const sessionKeysBucketName = "SubCheck_LiveStates"
@@ -81,22 +94,35 @@ func (s *Service) start(cfg *config.Config) error {
 	}
 	s.bucket = bucket
 
+	// -------------------------------------------------------------------------
+	// 【补丁 1】启动时清空历史 sessionKey
+	//
+	// 背景：sessionKey 的语义是「这一场直播我已处理过」，用于避免同一场直播
+	// 重复启动录制。但进程重启后 recorder 的运行时状态（正在录制的 goroutine）
+	// 全部归零，若 sessionKeys 从磁盘无条件恢复，就会出现
+	// 「内存里没在录、磁盘说录过了」的错配，导致重启后所有仍在播的房间
+	// 被 continue 跳过，永远不再录制。
+	//
+	// 修复：启动时清空 db 中的所有 sessionKey，让内存状态与磁盘状态从同一起点
+	// 开始。凡是在播的房间，下一轮 subcheck 都会重新触发 Start。
+	//
+	// 完整分析见：fork 主仓十重编.so/01-bug-analysis.md
+	// 补丁说明见：fork 主仓十重编.so/02-patch.md 补丁 1
+	// -------------------------------------------------------------------------
+	var staleKeys [][]byte
 	if err := bucket.ForEach(func(k, v []byte) error {
-		roomID, err := strconv.Atoi(string(k))
-		if err != nil {
-			return nil // skip invalid keys
-		}
-		if len(v) == 0 {
-			return nil
-		}
-		// Backward compatibility: historical format was bool-like [0]/[1].
-		if len(v) == 1 && (v[0] == 0 || v[0] == 1) {
-			return nil
-		}
-		s.sessionKeys.Store(roomID, string(v))
+		staleKeys = append(staleKeys, append([]byte(nil), k...))
 		return nil
 	}); err != nil {
 		return err
+	}
+	if len(staleKeys) > 0 {
+		log.Infof("清理启动前的 %d 条陈旧 sessionKey", len(staleKeys))
+	}
+	for _, k := range staleKeys {
+		if err := bucket.Delete(k); err != nil {
+			log.Warnf("清理陈旧 sessionKey 失败 key=%s: %v", string(k), err)
+		}
 	}
 
 	s.scheduleParams = scheduleParamsFromConfig(
@@ -242,6 +268,26 @@ func (s *Service) tryStartShardAutoRecordRooms(shardIndex, shardCount int) {
 			continue
 		}
 
+		// -----------------------------------------------------------------
+		// 【补丁 3（可选，默认关闭）】每轮核对 recorder 状态，清理孤立 sessionKey
+		//
+		// 适用场景：进程运行中途 recorder 内部异常停止，但 sessionKey 仍在内存
+		// 与磁盘中。补丁 1、2 无法覆盖这种情况，需要此检查自愈。
+		//
+		// 风险：recorder 状态转换有极小窗口可能误判（Start 刚返回但状态还没变成
+		// Recording），可能造成一次额外的 Start 调用（无害，recorder 内部会去重）。
+		//
+		// 若你的场景中 recorder 经常中途挂掉，取消下面注释即可启用。
+		// 一般情况下不需要。
+		// -----------------------------------------------------------------
+		// if _, loaded := s.sessionKeys.Load(roomID); loaded {
+		// 	status := s.recSvc.GetStatus(roomID)
+		// 	if status != recorder.Recording && status != recorder.Recovering {
+		// 		log.Warnf("房间 %d sessionKey 陈旧（录制未激活），清理并重试", roomID)
+		// 		s.clearSessionState(roomID)
+		// 	}
+		// }
+
 		storedSessionKey, loaded := s.sessionKeys.Load(roomID)
 		if loaded && storedSessionKey == currentSessionKey {
 			continue
@@ -250,6 +296,20 @@ func (s *Service) tryStartShardAutoRecordRooms(shardIndex, shardCount int) {
 		log.Debugf("new live session detected for room %d (%s), key: %s", roomID, info.Uname, currentSessionKey)
 		s.m.LiveSessionDetected(roomID)
 		state := notify.LiveStateLiveDetected
+
+		// -----------------------------------------------------------------
+		// 【补丁 2】started 标记：只有真正开始录制（或已经在录）时才写 sessionKey
+		//
+		// 背景：原逻辑无条件调用 markSessionState，导致 Start 失败时（并发满、
+		// 磁盘满、临时网络抖动等）也写入 sessionKey，下一轮被 continue 跳过，
+		// 造成「一次失败 = 永久放弃」。
+		//
+		// 修复：用 started 标记记录本次是否真的处理过，只有 started 为 true 时
+		// 才写入 sessionKey。Start 失败时不写，下一轮 subcheck 会重新尝试。
+		//
+		// 补丁说明见：fork 主仓十重编.so/02-patch.md 补丁 2
+		// -----------------------------------------------------------------
+		started := false
 
 		if cfg != nil && cfg.AutoRecord {
 			status := s.recSvc.GetStatus(roomID)
@@ -275,19 +335,31 @@ func (s *Service) tryStartShardAutoRecordRooms(shardIndex, shardCount int) {
 				switch err {
 				case nil, recorder.ErrRecordingStarted, recorder.ErrRecordRecovering, recorder.ErrRecordingPending:
 					state = notify.LiveStateAutoRecordStarted
+					started = true
 					log.Infof("已开始录制房间 %d（%s）", roomID, info.Uname)
 				default:
 					state = notify.LiveStateAutoRecordFailed
 					log.Warnf("开始录制房间 %d 失败：%v", roomID, err)
+					// 关键：此处不设置 started = true，下一轮 subcheck 会重新尝试
 				}
+			} else {
+				// 已经在录（Recording / Recovering），视为已处理
+				started = true
 			}
+		} else {
+			// 未开启 AutoRecord 的房间（只开启 Notify），也视为已处理，
+			// 避免每轮重复推送同一场直播的开播通知
+			started = true
 		}
 
 		if cfg != nil && cfg.Notify {
 			s.notifySvc.PublishLiveState(roomID, info.Uname, info.Title, state)
 		}
 
-		s.markSessionState(roomID, currentSessionKey)
+		// 只有 started 为 true 时才写入 sessionKey
+		if started {
+			s.markSessionState(roomID, currentSessionKey)
+		}
 	}
 }
 
