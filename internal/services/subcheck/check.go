@@ -39,6 +39,12 @@ import (
 var log = logger.Named("subcheck")
 
 const sessionKeysBucketName = "SubCheck_LiveStates"
+// sessionKeyGracePeriod 是 sessionKey 写入后的保护窗口。
+// Start 是异步的：它可能先返回 ErrRecordingPending（录制正在启动中），
+// 此时 recorder 的 GetStatus 仍是 Idle。若立刻做孤立检查会误清刚写入的
+// sessionKey，导致下一轮重复 Start 甚至丢失录制。宽限期需大于一次
+// subcheck tick（默认 60s），取 90s 留出余量。
+const sessionKeyGracePeriod = 90 * time.Second
 
 type Service struct {
 	subSvc      *subscribe.Service
@@ -47,7 +53,7 @@ type Service struct {
 	notifySvc   *notify.Service
 	m           *metrics.Exporter
 	bucket      *db.Bucket
-	sessionKeys *xsync.Map[int, string]
+	sessionKeyTimes *xsync.Map[int, int64]
 	coordinator *coordinator.RoundRobin
 	shardCount  int
 	shardStops  []func()
@@ -71,7 +77,7 @@ func NewService(lc fx.Lifecycle, cfg *config.Config, subSvc *subscribe.Service, 
 		recSvc:      recSvc,
 		notifySvc:   notifySvc,
 		m:           m,
-		sessionKeys: xsync.NewMap[int, string](),
+		sessionKeyTimes: xsync.NewMap[int, int64](),
 		ctx:         ctx,
 		cancel:      cancel,
 	}
@@ -283,8 +289,13 @@ func (s *Service) tryStartShardAutoRecordRooms(shardIndex, shardCount int) {
 		if _, loaded := s.sessionKeys.Load(roomID); loaded {
 			status := s.recSvc.GetStatus(roomID)
 			if status != recorder.Recording && status != recorder.Recovering {
-				log.Warnf("房间 %d sessionKey 陈旧（录制未激活），清理并重试", roomID)
-				s.clearSessionState(roomID)
+				// 宽限期保护：Start 可能返回 ErrRecordingPending（异步启动中），
+				// 此时 recorder 状态仍是 Idle。只有超过宽限期仍不活跃，才判定为
+				// 真正的孤立 sessionKey，避免误清刚写入的记录。
+				if ts, ok := s.sessionKeyTimes.Load(roomID); !ok || time.Since(time.Unix(0, ts)) >= sessionKeyGracePeriod {
+					log.Warnf("房间 %d sessionKey 陈旧（录制未激活），清理并重试", roomID)
+					s.clearSessionState(roomID)
+				}
 			}
 		}
 
@@ -386,12 +397,14 @@ func streamOptionsFromRoomConfig(cfg *subscribe.RoomConfig) []bilibili.GetStream
 
 func (s *Service) markSessionState(roomID int, sessionKey string) {
 	s.sessionKeys.Store(roomID, sessionKey)
+	s.sessionKeyTimes.Store(roomID, time.Now().UnixNano())
 	if err := s.bucket.Put([]byte(strconv.Itoa(roomID)), []byte(sessionKey)); err != nil {
 		log.Warnf("保存房间 %d 会话密钥失败：%v", roomID, err)
 	}
 }
 
 func (s *Service) clearSessionState(roomID int) {
+	s.sessionKeyTimes.Delete(roomID)
 	_, loaded := s.sessionKeys.LoadAndDelete(roomID)
 	if !loaded {
 		return
