@@ -10,7 +10,7 @@ import (
 	"github.com/bilirec/bilirec/internal/modules/config"
 	"github.com/bilirec/bilirec/internal/services/room"
 	"github.com/bilirec/bilirec/internal/services/subscribe"
-	"github.com/bilirec/bilirec/internal/testutil"
+	"github.com/bilirec/bilirec/internal/testutil/live"
 	"github.com/bilirec/bilirec/pkg/logger"
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxtest"
@@ -58,7 +58,7 @@ func TestPubsub_Subscribe(t *testing.T) {
 		_ = svc.Unsubscribe(rid)
 	}
 
-	testRoomID := testutil.LiveRoomID(t)
+	testRoomID := live.LiveRoomID(t)
 	err := svc.Subscribe(testRoomID)
 	if err != nil {
 		t.Fatalf("first subscribe failed: %v", err)
@@ -81,7 +81,7 @@ func TestPubsub_Subscribe(t *testing.T) {
 
 func TestPubsub_Unsubscribe(t *testing.T) {
 	svc := newSubscribeService(t)
-	testRoomID := testutil.LiveRoomID(t)
+	testRoomID := live.LiveRoomID(t)
 
 	err := svc.Unsubscribe(testRoomID)
 	if err != subscribe.ErrRoomNotSubscribed {
@@ -105,7 +105,7 @@ func TestPubsub_Unsubscribe(t *testing.T) {
 
 func TestPubsub_IsSubscribed(t *testing.T) {
 	svc := newSubscribeService(t)
-	testRoomID := testutil.LiveRoomID(t)
+	testRoomID := live.LiveRoomID(t)
 
 	isSubscribed, err := svc.IsSubscribed(testRoomID)
 	if err != nil {
@@ -159,7 +159,7 @@ func TestPubsub_ListSubscribedRooms(t *testing.T) {
 		t.Fatalf("expected empty list after cleanup, got %d rooms", len(rooms))
 	}
 
-	testRooms := testutil.LiveRoomIDs(t, 3)
+	testRooms := live.LiveRoomIDs(t, 3)
 	for _, roomID := range testRooms {
 		if err := svc.Subscribe(roomID); err != nil {
 			t.Fatalf("subscribe %d failed: %v", roomID, err)
@@ -204,7 +204,7 @@ func TestMemoryLeak_SubscribeUnsubscribeCycle(t *testing.T) {
 	runtime.ReadMemStats(&m1)
 
 	const iterations = 200
-	roomIDs := testutil.LiveRoomIDs(t, iterations)
+	roomIDs := live.LiveRoomIDs(t, iterations)
 	for i := 0; i < iterations; i++ {
 		roomID := roomIDs[i]
 		if err := svc.Subscribe(roomID); err != nil {
@@ -266,7 +266,7 @@ func TestMemoryLeak_ListCycle(t *testing.T) {
 
 func TestSnapshot_WriteThroughVisibleImmediately(t *testing.T) {
 	svc := newSubscribeService(t)
-	roomID := testutil.LiveRoomID(t)
+	roomID := live.LiveRoomID(t)
 
 	if err := svc.Subscribe(roomID); err != nil {
 		t.Fatalf("subscribe failed: %v", err)
@@ -337,7 +337,7 @@ func TestSnapshot_WriteThroughVisibleImmediately(t *testing.T) {
 
 func TestSnapshot_ReloadsAfterRestart(t *testing.T) {
 	dir := t.TempDir()
-	roomID := testutil.LiveRoomID(t)
+	roomID := live.LiveRoomID(t)
 
 	svc, app := startSubscribeService(t, dir)
 	if err := svc.Subscribe(roomID); err != nil {
@@ -365,7 +365,7 @@ func TestSnapshot_ReloadsAfterRestart(t *testing.T) {
 func TestConcurrency_SubscribeAndListIsolated(t *testing.T) {
 	svc := newSubscribeService(t)
 	done := make(chan bool, 20)
-	roomIDs := testutil.LiveRoomIDs(t, 40)
+	roomIDs := live.LiveRoomIDs(t, 40)
 
 	for i := 0; i < 10; i++ {
 		go func(id int) {

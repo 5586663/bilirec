@@ -1,6 +1,7 @@
 package recorder_test
 
 import (
+	"github.com/bilirec/bilirec/internal/testutil/recording"
 	"sync"
 	"testing"
 	"time"
@@ -17,8 +18,8 @@ func TestRecorder_MaxConcurrentRecordingsRace_Guard(t *testing.T) {
 
 	t.Setenv("MAX_CONCURRENT_RECORDINGS", "3")
 
-	sess := newRecorderTestSession(t)
-	rooms := resolveLiveTestRoomIDs(t, sess.Room, 4)
+	sess := recording.NewSession(t)
+	rooms := recording.ResolveLiveTestRoomIDs(t, sess.Room, 4)
 	rounds := 20
 	const (
 		settleDelay    = 200 * time.Millisecond
@@ -28,7 +29,7 @@ func TestRecorder_MaxConcurrentRecordingsRace_Guard(t *testing.T) {
 	for round := 1; round <= rounds; round++ {
 		sess.Room.InvalidateRooms(rooms...)
 
-		roundPhase, err := sess.Monitor.beginPhase("concurrent_race_round")
+		roundPhase, err := sess.Monitor.BeginPhase("concurrent_race_round")
 		if err != nil {
 			t.Fatalf("round %d begin phase: %v", round, err)
 		}
@@ -71,9 +72,9 @@ func TestRecorder_MaxConcurrentRecordingsRace_Guard(t *testing.T) {
 
 		time.Sleep(settleDelay)
 		active := sess.Recorder.ListRecordingSize()
-		roundReport := roundPhase.end(t)
-		logCPUPhase(t, roundReport)
-		sess.Monitor.snapshotGoroutines(t, "after_round")
+		roundReport := roundPhase.End(t)
+		recording.LogCPUPhase(t, roundReport)
+		sess.Monitor.SnapshotGoroutines(t, "after_round")
 
 		if active == 4 {
 			t.Fatalf("round %d overflow detected: success=%d active=%d max_limit_err=%d other_err=%d", round, success, active, maxLimitErr, otherErr)
@@ -83,54 +84,8 @@ func TestRecorder_MaxConcurrentRecordingsRace_Guard(t *testing.T) {
 		for _, roomID := range rooms {
 			sess.Recorder.Stop(roomID)
 		}
-		waitUntilNoActiveRecordings(t, sess.Recorder, cleanupTimeout)
+		recording.WaitUntilNoActiveRecordings(t, sess.Recorder, cleanupTimeout)
 	}
 
-	sess.Monitor.logAnalysisHints(t)
-}
-
-func waitUntilNoActiveRecordings(t *testing.T, recorderService *recorder.Service, timeout time.Duration) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if recorderService.ListRecordingSize() == 0 {
-			return
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	t.Fatalf("cleanup timeout: still has %d active recordings", recorderService.ListRecordingSize())
-}
-
-type concurrentStartResult struct {
-	room int
-	err  error
-}
-
-// collectConcurrentStartResults drains all concurrent Start results before handling
-// errors so a failure received early cannot skip Stop on later successful starts.
-func collectConcurrentStartResults(t *testing.T, recorderService *recorder.Service, results <-chan concurrentStartResult) []int {
-	t.Helper()
-
-	started := make([]int, 0)
-	var firstErr error
-	for r := range results {
-		if r.err == nil {
-			started = append(started, r.room)
-			t.Logf("concurrent start ok: room=%d", r.room)
-			continue
-		}
-		if firstErr == nil {
-			firstErr = r.err
-		}
-	}
-
-	if firstErr != nil {
-		for _, rid := range started {
-			_ = recorderService.Stop(rid)
-		}
-		waitUntilNoActiveRecordings(t, recorderService, 30*time.Second)
-		handleRecordingStartErr(t, firstErr)
-	}
-
-	return started
+	sess.Monitor.LogAnalysisHints(t)
 }

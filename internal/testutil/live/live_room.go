@@ -1,4 +1,4 @@
-﻿package testutil
+package live
 
 import (
 	"context"
@@ -15,9 +15,9 @@ import (
 )
 
 const (
-	broadcastsEndpoint     = "https://workers.vrp.moe/laplace/ranking?type=danmakus"
-	envLiveRoomID          = "BILIBILI_TEST_ROOM_ID"
-	envLiveRoomIDs         = "BILIBILI_TEST_ROOM_IDS"
+	broadcastsEndpoint   = "https://workers.vrp.moe/laplace/ranking?type=danmakus"
+	envLiveRoomID        = "BILIBILI_TEST_ROOM_ID"
+	envLiveRoomIDs       = "BILIBILI_TEST_ROOM_IDS"
 	broadcastsFetchTimeout = 90 * time.Second
 )
 
@@ -122,7 +122,7 @@ func parseRoomIDList(tb testing.TB, raw string) []int {
 	return ids
 }
 
-func parseRoomID(tb testing.TB, raw string, source string) int {
+func parseRoomID(tb testing.TB, raw, source string) int {
 	tb.Helper()
 	id, err := strconv.Atoi(strings.TrimSpace(raw))
 	if err != nil || id <= 0 {
@@ -176,7 +176,6 @@ func fetchBroadcastPage(ctx context.Context) ([]broadcastEntry, error) {
 		return nil, err
 	}
 
-	// add user agent
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; bilirec/1.0; +https://github.com/bilirec/bilirec)")
 
 	resp, err := http.DefaultClient.Do(req)

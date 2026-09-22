@@ -1,4 +1,4 @@
-package recorder_test
+package recording
 
 import (
 	"errors"
@@ -40,7 +40,7 @@ const (
 	recorderTestProfileDirEnv              = "RECORDER_TEST_PROFILE_DIR"
 	recorderCPUSteadySampleEnv             = "RECORDER_CPU_STEADY_SAMPLE_SECS"
 	recorderCPUSteadySampleMin             = 1 * time.Second
-	recorderTestSettleAfterStop            = 5 * time.Second
+	SettleAfterStop            = 5 * time.Second
 	pprofLogTopN                           = 10
 	recorderRecordProfileIntervalEnv       = "RECORDER_RECORD_PROFILE_INTERVAL_SECS"
 	recorderProfileLogTopEnv               = "RECORDER_PROFILE_LOG_TOP" // default false: save only during test
@@ -50,25 +50,24 @@ const (
 	recorderTestMaxRetainedSysPerRoomEnv   = "RECORDER_TEST_MAX_RETAINED_SYS_MB_PER_ROOM"
 )
 
-// recorderTestSession wires fx app lifecycle with cross-platform profiling:
+// Session wires fx app lifecycle with cross-platform profiling:
 //   - local debug/pprof HTTP (heap / goroutine / profile / trace)
 //   - gopsutil CPU phase metrics (util% without parsing pprof during test)
 //   - save-only heap/goroutine snapshots on an interval during recording
 //   - one continuous CPU profile (scheme B) per recording window; analyze at end
-type recorderTestSession struct {
-	t        *testing.T
+type Session struct {
 	app      *fxtest.App
 	Bili     *bilibili.Client
 	Recorder *recorder.Service
 	Room     *room.Service
 	Danmaku  *danmaku.Service
-	Monitor  *recorderTestMonitor
+	Monitor  *Monitor
 }
 
-func newRecorderTestSession(t *testing.T) *recorderTestSession {
+func NewSession(t *testing.T) *Session {
 	t.Helper()
 
-	monitor := newRecorderTestMonitor(t)
+	monitor := newMonitor(t)
 	var biliClient *bilibili.Client
 	var recorderService *recorder.Service
 	var roomService *room.Service
@@ -89,8 +88,7 @@ func newRecorderTestSession(t *testing.T) *recorderTestSession {
 	)
 	app.RequireStart()
 
-	sess := &recorderTestSession{
-		t:        t,
+	sess := &Session{
 		app:      app,
 		Bili:     biliClient,
 		Recorder: recorderService,
@@ -102,7 +100,7 @@ func newRecorderTestSession(t *testing.T) *recorderTestSession {
 	return sess
 }
 
-func (s *recorderTestSession) close() {
+func (s *Session) close() {
 	if s.app != nil {
 		s.app.RequireStop()
 		s.app = nil
@@ -112,15 +110,15 @@ func (s *recorderTestSession) close() {
 	}
 }
 
-// recorderTestMonitor provides cross-platform observability for integration tests.
-type recorderTestMonitor struct {
+// Monitor provides cross-platform observability for integration tests.
+type Monitor struct {
 	proc       *process.Process
 	profileDir string
 	pprofBase  string
 	closePprof func()
 }
 
-func newRecorderTestMonitor(t *testing.T) *recorderTestMonitor {
+func newMonitor(t *testing.T) *Monitor {
 	t.Helper()
 
 	profileDir := recorderTestProfileDir(t)
@@ -130,7 +128,7 @@ func newRecorderTestMonitor(t *testing.T) *recorderTestMonitor {
 	}
 
 	pprofBase, closePprof := startTestPprofServer(t)
-	m := &recorderTestMonitor{
+	m := &Monitor{
 		proc:       proc,
 		profileDir: profileDir,
 		pprofBase:  pprofBase,
@@ -140,14 +138,14 @@ func newRecorderTestMonitor(t *testing.T) *recorderTestMonitor {
 	return m
 }
 
-func (m *recorderTestMonitor) Close() {
+func (m *Monitor) Close() {
 	if m.closePprof != nil {
 		m.closePprof()
 		m.closePprof = nil
 	}
 }
 
-func (m *recorderTestMonitor) logEndpoints(t *testing.T) {
+func (m *Monitor) logEndpoints(t *testing.T) {
 	t.Helper()
 	t.Logf("recorder test monitor: profile_dir=%s pprof=%s/debug/pprof/ num_cpu=%d num_goroutine=%d",
 		m.profileDir, m.pprofBase, runtime.NumCPU(), runtime.NumGoroutine())
@@ -159,7 +157,7 @@ func (m *recorderTestMonitor) logEndpoints(t *testing.T) {
 	t.Logf("  post-run:     logAnalysisHints() dumps pprof top %d for saved profiles", pprofLogTopN)
 }
 
-func (m *recorderTestMonitor) logAnalysisHints(t *testing.T) {
+func (m *Monitor) LogAnalysisHints(t *testing.T) {
 	t.Helper()
 	t.Logf("--- saved profile analysis (post-run, profile_dir=%s) ---", m.profileDir)
 	m.flushSavedCPUProfiles(t)
@@ -169,7 +167,7 @@ func (m *recorderTestMonitor) logAnalysisHints(t *testing.T) {
 	t.Logf("cpu time ranges: go tool pprof -http=:8080 %s/<recording>.pprof  (use Sample menu)", m.profileDir)
 }
 
-type memorySnapshot struct {
+type MemorySnapshot struct {
 	Label        string
 	AllocMB      float64
 	HeapInuseMB  float64
@@ -179,7 +177,7 @@ type memorySnapshot struct {
 	Goroutines   int
 }
 
-func (m *recorderTestMonitor) snapshotMemory(t *testing.T, label string, runGC bool) memorySnapshot {
+func (m *Monitor) SnapshotMemory(t *testing.T, label string, runGC bool) MemorySnapshot {
 	t.Helper()
 	if runGC {
 		runtime.GC()
@@ -188,7 +186,7 @@ func (m *recorderTestMonitor) snapshotMemory(t *testing.T, label string, runGC b
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
 	heapPath := m.writeHeapProfile(label)
-	snap := memorySnapshot{
+	snap := MemorySnapshot{
 		Label:        label,
 		AllocMB:      float64(ms.Alloc) / (1024 * 1024),
 		HeapInuseMB:  float64(ms.HeapInuse) / (1024 * 1024),
@@ -203,7 +201,7 @@ func (m *recorderTestMonitor) snapshotMemory(t *testing.T, label string, runGC b
 	return snap
 }
 
-func (m *recorderTestMonitor) snapshotGoroutines(t *testing.T, label string) int {
+func (m *Monitor) SnapshotGoroutines(t *testing.T, label string) int {
 	t.Helper()
 	n := runtime.NumGoroutine()
 	goroutinePath := m.fetchPprofSnapshot(t, label, "_goroutine.prof", "/debug/pprof/goroutine")
@@ -212,7 +210,7 @@ func (m *recorderTestMonitor) snapshotGoroutines(t *testing.T, label string) int
 	return n
 }
 
-func (m *recorderTestMonitor) fetchPprofSnapshot(t *testing.T, label, suffix, endpoint string) string {
+func (m *Monitor) fetchPprofSnapshot(t *testing.T, label, suffix, endpoint string) string {
 	t.Helper()
 	resp, err := http.Get(m.pprofBase + endpoint)
 	if err != nil {
@@ -240,7 +238,7 @@ func (m *recorderTestMonitor) fetchPprofSnapshot(t *testing.T, label, suffix, en
 	return path
 }
 
-func (m *recorderTestMonitor) writeHeapProfile(label string) string {
+func (m *Monitor) writeHeapProfile(label string) string {
 	safe := sanitizeProfileLabel(label)
 	path := filepath.Join(m.profileDir, safe+"_heap.prof")
 	f, err := os.Create(path)
@@ -272,7 +270,7 @@ func sanitizeProfileLabel(label string) string {
 	return string(out)
 }
 
-type cpuPhaseReport struct {
+type CPUPhaseReport struct {
 	Name          string
 	Wall          time.Duration
 	CPUTime       time.Duration
@@ -281,7 +279,7 @@ type cpuPhaseReport struct {
 	AvgCPUPercent float64
 }
 
-func (m *recorderTestMonitor) beginPhase(name string) (*cpuPhase, error) {
+func (m *Monitor) BeginPhase(name string) (*CPUPhase, error) {
 	times, err := m.proc.Times()
 	if err != nil {
 		return nil, err
@@ -297,7 +295,7 @@ func (m *recorderTestMonitor) beginPhase(name string) (*cpuPhase, error) {
 		return nil, err
 	}
 
-	return &cpuPhase{
+	return &CPUPhase{
 		monitor:     m,
 		name:        name,
 		wallStart:   time.Now(),
@@ -307,8 +305,8 @@ func (m *recorderTestMonitor) beginPhase(name string) (*cpuPhase, error) {
 	}, nil
 }
 
-type cpuPhase struct {
-	monitor     *recorderTestMonitor
+type CPUPhase struct {
+	monitor     *Monitor
 	name        string
 	wallStart   time.Time
 	timesStart  *cpu.TimesStat
@@ -316,7 +314,7 @@ type cpuPhase struct {
 	profileFile *os.File
 }
 
-func (p *cpuPhase) end(t *testing.T) cpuPhaseReport {
+func (p *CPUPhase) End(t *testing.T) CPUPhaseReport {
 	t.Helper()
 
 	pprof.StopCPUProfile()
@@ -324,7 +322,7 @@ func (p *cpuPhase) end(t *testing.T) cpuPhaseReport {
 	maybeLogCPUPprofTop(t, p.name, p.profilePath)
 
 	wall := time.Since(p.wallStart)
-	report := cpuPhaseReport{
+	report := CPUPhaseReport{
 		Name:        p.name,
 		Wall:        wall,
 		ProfilePath: p.profilePath,
@@ -342,7 +340,7 @@ func (p *cpuPhase) end(t *testing.T) cpuPhaseReport {
 	return report
 }
 
-func (m *recorderTestMonitor) measureAvgCPU(t *testing.T, interval time.Duration) float64 {
+func (m *Monitor) MeasureAvgCPU(t *testing.T, interval time.Duration) float64 {
 	t.Helper()
 	pct, err := m.proc.Percent(interval)
 	if err != nil {
@@ -352,7 +350,7 @@ func (m *recorderTestMonitor) measureAvgCPU(t *testing.T, interval time.Duration
 	return pct
 }
 
-func logCPUPhase(t *testing.T, report cpuPhaseReport) {
+func LogCPUPhase(t *testing.T, report CPUPhaseReport) {
 	t.Helper()
 	switch {
 	case report.AvgCPUPercent > 0 && report.UtilPercent > 0:
@@ -380,7 +378,7 @@ func logCPUPhase(t *testing.T, report cpuPhaseReport) {
 	}
 }
 
-func logMemoryDelta(t *testing.T, before, after memorySnapshot) {
+func LogMemoryDelta(t *testing.T, before, after MemorySnapshot) {
 	t.Helper()
 	t.Logf("mem delta %s -> %s: alloc %+.2f MB goroutines %+d",
 		before.Label, after.Label,
@@ -389,7 +387,7 @@ func logMemoryDelta(t *testing.T, before, after memorySnapshot) {
 	)
 }
 
-func handleRecordingStartErr(t *testing.T, err error) {
+func HandleRecordingStartErr(t *testing.T, err error) {
 	t.Helper()
 	if err == nil {
 		return
@@ -422,7 +420,7 @@ func recorderTestProfileDir(t *testing.T) string {
 	return t.TempDir()
 }
 
-func recorderCPUSteadySampleDuration() time.Duration {
+func CPUSteadySampleDuration() time.Duration {
 	raw := os.Getenv(recorderCPUSteadySampleEnv)
 	if raw == "" {
 		return recorderCPUSteadySampleMin
@@ -436,7 +434,7 @@ func recorderCPUSteadySampleDuration() time.Duration {
 	return recorderCPUSteadySampleMin
 }
 
-func integrationRecordDuration() time.Duration {
+func IntegrationRecordDuration() time.Duration {
 	if os.Getenv("CI") != "" {
 		return 15 * time.Minute
 	}
@@ -466,7 +464,7 @@ func recordingSnapshotInterval(total time.Duration) time.Duration {
 // runRecordingProfiledWait holds one continuous CPU profile (scheme B) for the full
 // duration while saving heap/goroutine snapshots at recordingSnapshotInterval.
 // pprof top output is deferred to logAnalysisHints unless RECORDER_PROFILE_LOG_TOP=true.
-func (m *recorderTestMonitor) runRecordingProfiledWait(t *testing.T, label string, duration time.Duration) cpuPhaseReport {
+func (m *Monitor) RunRecordingProfiledWait(t *testing.T, label string, duration time.Duration) CPUPhaseReport {
 	t.Helper()
 
 	interval := recordingSnapshotInterval(duration)
@@ -477,7 +475,7 @@ func (m *recorderTestMonitor) runRecordingProfiledWait(t *testing.T, label strin
 	t.Logf("recording save-only wait: label=%s total=%s snapshot_interval=%s snapshots≈%d cpu=continuous",
 		label, duration.Round(time.Second), interval.Round(time.Second), int(duration/interval)+1)
 
-	phase, err := m.beginPhase(label)
+	phase, err := m.BeginPhase(label)
 	if err != nil {
 		t.Fatalf("begin recording cpu phase %s: %v", label, err)
 	}
@@ -494,12 +492,12 @@ func (m *recorderTestMonitor) runRecordingProfiledWait(t *testing.T, label strin
 		tick++
 
 		snapLabel := fmt.Sprintf("%s_tick%03d_elapsed_%s", label, tick, elapsed.Round(time.Second))
-		m.snapshotMemory(t, snapLabel, false)
-		m.snapshotGoroutines(t, snapLabel)
+		m.SnapshotMemory(t, snapLabel, false)
+		m.SnapshotGoroutines(t, snapLabel)
 	}
 
-	report := phase.end(t)
-	logCPUPhase(t, report)
+	report := phase.End(t)
+	LogCPUPhase(t, report)
 	return report
 }
 
@@ -545,7 +543,7 @@ func maybeLogGoroutinePprofTop(t *testing.T, label, path string) {
 	}
 }
 
-func (m *recorderTestMonitor) flushSavedCPUProfiles(t *testing.T) {
+func (m *Monitor) flushSavedCPUProfiles(t *testing.T) {
 	t.Helper()
 	paths, err := filepath.Glob(filepath.Join(m.profileDir, "*.pprof"))
 	if err != nil {
@@ -563,7 +561,7 @@ func (m *recorderTestMonitor) flushSavedCPUProfiles(t *testing.T) {
 	}
 }
 
-func (m *recorderTestMonitor) flushSavedHeapProfiles(t *testing.T) {
+func (m *Monitor) flushSavedHeapProfiles(t *testing.T) {
 	t.Helper()
 	paths, err := filepath.Glob(filepath.Join(m.profileDir, "*_heap.prof"))
 	if err != nil {
@@ -583,7 +581,7 @@ func (m *recorderTestMonitor) flushSavedHeapProfiles(t *testing.T) {
 	}
 }
 
-func (m *recorderTestMonitor) flushSavedGoroutineProfiles(t *testing.T) {
+func (m *Monitor) flushSavedGoroutineProfiles(t *testing.T) {
 	t.Helper()
 	paths, err := filepath.Glob(filepath.Join(m.profileDir, "*_goroutine.prof"))
 	if err != nil {
@@ -642,23 +640,23 @@ func cpuUtilizationPercent(cpuTime, wallTime time.Duration) float64 {
 	return float64(cpuTime) / float64(wallTime) / float64(cores) * 100
 }
 
-func memAllocDiffMB(after, before memorySnapshot) float64 {
+func MemAllocDiffMB(after, before MemorySnapshot) float64 {
 	return after.AllocMB - before.AllocMB
 }
 
-func memSysDiffMB(after, before memorySnapshot) float64 {
+func MemSysDiffMB(after, before MemorySnapshot) float64 {
 	return after.SysMB - before.SysMB
 }
 
-// recordingMemoryBudget caps heap and runtime Sys growth retained after a full
+// MemoryBudget caps heap and runtime Sys growth retained after a full
 // record/stop/cleanup cycle relative to the pre-record baseline.
-type recordingMemoryBudget struct {
+type MemoryBudget struct {
 	label              string
 	maxRetainedAllocMB float64
 	maxRetainedSysMB   float64
 }
 
-func recordingMemoryBudgetForSessions(concurrentSessions int, label string) recordingMemoryBudget {
+func MemoryBudgetForSessions(concurrentSessions int, label string) MemoryBudget {
 	const (
 		baseAllocMB     = 18.0
 		perSessionAlloc = 12.0
@@ -666,7 +664,7 @@ func recordingMemoryBudgetForSessions(concurrentSessions int, label string) reco
 		perSessionSys   = 20.0
 	)
 
-	budget := recordingMemoryBudget{
+	budget := MemoryBudget{
 		label:              label,
 		maxRetainedAllocMB: baseAllocMB + float64(concurrentSessions)*perSessionAlloc,
 		maxRetainedSysMB:   baseSysMB + float64(concurrentSessions)*perSessionSys,
@@ -697,20 +695,20 @@ func recordingMemoryBudgetForSessions(concurrentSessions int, label string) reco
 
 // snapshotMemoryReleased mirrors production idle cleanup: GC plus returning unused
 // pages to the OS (janitor uses the same FreeOSMemory path).
-func (m *recorderTestMonitor) snapshotMemoryReleased(t *testing.T, label string) memorySnapshot {
+func (m *Monitor) SnapshotMemoryReleased(t *testing.T, label string) MemorySnapshot {
 	t.Helper()
 	runtime.GC()
 	runtime.GC()
 	debug.FreeOSMemory()
 	time.Sleep(100 * time.Millisecond)
-	return m.snapshotMemory(t, label, false)
+	return m.SnapshotMemory(t, label, false)
 }
 
-func assertRecordingMemoryReleased(t *testing.T, baseline, after memorySnapshot, budget recordingMemoryBudget) {
+func AssertRecordingMemoryReleased(t *testing.T, baseline, after MemorySnapshot, budget MemoryBudget) {
 	t.Helper()
 
-	retainedAlloc := memAllocDiffMB(after, baseline)
-	retainedSys := memSysDiffMB(after, baseline)
+	retainedAlloc := MemAllocDiffMB(after, baseline)
+	retainedSys := MemSysDiffMB(after, baseline)
 
 	t.Logf("memory retention [%s]: alloc %+.2f MB (limit %.2f) heap_inuse %+.2f MB sys %+.2f MB (limit %.2f) goroutines %+d",
 		budget.label,
@@ -731,65 +729,65 @@ func assertRecordingMemoryReleased(t *testing.T, baseline, after memorySnapshot,
 }
 
 // runFormatRecordTest exercises a full record/stop cycle with profiling hooks.
-func runFormatRecordTest(t *testing.T, profile bilibili.StreamProfile, format string) {
+func RunFormatRecordTest(t *testing.T, profile bilibili.StreamProfile, format string) {
 	t.Helper()
 	if testing.Short() {
 		t.Skipf("skipping %s record test in short mode", format)
 	}
 
-	sess := newRecorderTestSession(t)
-	roomID := resolveLiveTestRoomIDWithStream(t, sess, bilibili.WithProfiles(profile))
+	sess := NewSession(t)
+	roomID := ResolveLiveTestRoomIDWithStream(t, sess, bilibili.WithProfiles(profile))
 
-	baseline := sess.Monitor.snapshotMemory(t, "baseline", true)
+	baseline := sess.Monitor.SnapshotMemory(t, "baseline", true)
 
-	startPhase, err := sess.Monitor.beginPhase(format + "_start")
+	startPhase, err := sess.Monitor.BeginPhase(format + "_start")
 	if err != nil {
 		t.Fatalf("begin start phase: %v", err)
 	}
 	startErr := sess.Recorder.Start(roomID, recorder.WithStreamOptions(bilibili.WithProfiles(profile)))
-	startReport := startPhase.end(t)
-	handleRecordingStartErr(t, startErr)
-	logCPUPhase(t, startReport)
+	startReport := startPhase.End(t)
+	HandleRecordingStartErr(t, startErr)
+	LogCPUPhase(t, startReport)
 
-	outputPath := waitForOutputPathAfterStart(t, sess.Recorder, roomID)
+	outputPath := WaitForOutputPathAfterStart(t, sess.Recorder, roomID)
 
-	_ = sess.Monitor.runRecordingProfiledWait(t, format+"_recording", integrationRecordDuration())
-	during := sess.Monitor.snapshotMemory(t, "during_recording", false)
-	logMemoryDelta(t, baseline, during)
+	_ = sess.Monitor.RunRecordingProfiledWait(t, format+"_recording", IntegrationRecordDuration())
+	during := sess.Monitor.SnapshotMemory(t, "during_recording", false)
+	LogMemoryDelta(t, baseline, during)
 
 	t.Log("stopping recording")
 	t.Logf("stop success: %v", sess.Recorder.Stop(roomID))
-	waitUntilNoActiveRecordings(t, sess.Recorder, 30*time.Second)
-	time.Sleep(recorderTestSettleAfterStop)
+	WaitUntilNoActiveRecordings(t, sess.Recorder, 30*time.Second)
+	time.Sleep(SettleAfterStop)
 
-	afterStop := sess.Monitor.snapshotMemory(t, "after_stop", false)
-	logMemoryDelta(t, during, afterStop)
+	afterStop := sess.Monitor.SnapshotMemory(t, "after_stop", false)
+	LogMemoryDelta(t, during, afterStop)
 
-	afterCleanup := sess.Monitor.snapshotMemoryReleased(t, format+"_after_cleanup")
-	assertRecordingMemoryReleased(t, baseline, afterCleanup, recordingMemoryBudgetForSessions(1, format))
+	afterCleanup := sess.Monitor.SnapshotMemoryReleased(t, format+"_after_cleanup")
+	AssertRecordingMemoryReleased(t, baseline, afterCleanup, MemoryBudgetForSessions(1, format))
 
-	sess.Monitor.logAnalysisHints(t)
+	sess.Monitor.LogAnalysisHints(t)
 
-	if checkFFmpegAvailable(t) {
+	if CheckFFmpegAvailable(t) {
 		t.Logf("\n📹 Verifying %s recordings in room dir...", strings.ToUpper(format))
-		verifyAllRecordingsInRoomDir(t, filepath.Dir(outputPath), format)
+		VerifyAllRecordingsInRoomDir(t, filepath.Dir(outputPath), format)
 	}
 }
 
-type concurrentFormatRecordSpec struct {
-	profile bilibili.StreamProfile
-	format  string
+type ConcurrentFormatRecordSpec struct {
+	Profile bilibili.StreamProfile
+	Format  string
 }
 
 type concurrentRoomRecording struct {
 	roomID     int
 	outputPath string
-	spec       concurrentFormatRecordSpec
+	spec       ConcurrentFormatRecordSpec
 }
 
 // runConcurrentFormatRecordTest records each format on a distinct live room in parallel.
 // Structure mirrors runFormatRecordTest with profiling, memory budget, and directory ffprobe.
-func runConcurrentFormatRecordTest(t *testing.T, specs ...concurrentFormatRecordSpec) {
+func RunConcurrentFormatRecordTest(t *testing.T, specs ...ConcurrentFormatRecordSpec) {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("skipping concurrent format record test in short mode")
@@ -798,22 +796,22 @@ func runConcurrentFormatRecordTest(t *testing.T, specs ...concurrentFormatRecord
 		t.Fatal("no recording specs")
 	}
 
-	label := specs[0].format
+	label := specs[0].Format
 	for i := 1; i < len(specs); i++ {
-		label += "_" + specs[i].format
+		label += "_" + specs[i].Format
 	}
 
-	sess := newRecorderTestSession(t)
-	slots := make([]liveStreamSlot, len(specs))
+	sess := NewSession(t)
+	slots := make([]LiveStreamSlot, len(specs))
 	for i, spec := range specs {
-		slots[i] = liveStreamSlotForProfile(spec.profile)
+		slots[i] = LiveStreamSlotForProfile(spec.Profile)
 	}
-	rooms := resolveLiveTestRoomsForStreamSlots(t, sess, slots)
+	rooms := ResolveLiveTestRoomsForStreamSlots(t, sess, slots)
 	if len(rooms) < len(specs) {
 		t.Fatalf("need %d live rooms, got %d", len(specs), len(rooms))
 	}
 
-	baseline := sess.Monitor.snapshotMemory(t, "concurrent_baseline", true)
+	baseline := sess.Monitor.SnapshotMemory(t, "concurrent_baseline", true)
 	sess.Room.InvalidateRooms(rooms...)
 
 	recordings := make([]concurrentRoomRecording, len(specs))
@@ -826,13 +824,13 @@ func runConcurrentFormatRecordTest(t *testing.T, specs ...concurrentFormatRecord
 
 	t.Logf("concurrent format record: label=%s rooms=%v", label, rooms)
 
-	startPhase, err := sess.Monitor.beginPhase(label + "_start")
+	startPhase, err := sess.Monitor.BeginPhase(label + "_start")
 	if err != nil {
 		t.Fatalf("begin start phase: %v", err)
 	}
 
 	startGate := make(chan struct{})
-	resultCh := make(chan concurrentStartResult, len(recordings))
+	resultCh := make(chan ConcurrentStartResult, len(recordings))
 	var wg sync.WaitGroup
 	for i := range recordings {
 		rec := recordings[i]
@@ -841,50 +839,50 @@ func runConcurrentFormatRecordTest(t *testing.T, specs ...concurrentFormatRecord
 		go func() {
 			defer wg.Done()
 			<-startGate
-			err := sess.Recorder.Start(rec.roomID, recorder.WithStreamOptions(bilibili.WithProfiles(spec.profile)))
-			resultCh <- concurrentStartResult{room: rec.roomID, err: err}
+			err := sess.Recorder.Start(rec.roomID, recorder.WithStreamOptions(bilibili.WithProfiles(spec.Profile)))
+			resultCh <- ConcurrentStartResult{Room: rec.roomID, Err: err}
 		}()
 	}
 	close(startGate)
 	wg.Wait()
 	close(resultCh)
 
-	startReport := startPhase.end(t)
-	logCPUPhase(t, startReport)
+	startReport := startPhase.End(t)
+	LogCPUPhase(t, startReport)
 
-	started := collectConcurrentStartResults(t, sess.Recorder, resultCh)
+	started := CollectConcurrentStartResults(t, sess.Recorder, resultCh)
 
 	if len(started) != len(recordings) {
 		t.Fatalf("expected %d successful starts, got %d", len(recordings), len(started))
 	}
 
 	for i := range recordings {
-		recordings[i].outputPath = waitForOutputPathAfterStart(t, sess.Recorder, recordings[i].roomID)
+		recordings[i].outputPath = WaitForOutputPathAfterStart(t, sess.Recorder, recordings[i].roomID)
 	}
 
-	_ = sess.Monitor.runRecordingProfiledWait(t, label+"_recording", integrationRecordDuration())
-	during := sess.Monitor.snapshotMemory(t, "during_recording", false)
-	logMemoryDelta(t, baseline, during)
+	_ = sess.Monitor.RunRecordingProfiledWait(t, label+"_recording", IntegrationRecordDuration())
+	during := sess.Monitor.SnapshotMemory(t, "during_recording", false)
+	LogMemoryDelta(t, baseline, during)
 
 	t.Log("stopping concurrent recordings")
 	for _, rec := range recordings {
 		t.Logf("stop room=%d success=%v", rec.roomID, sess.Recorder.Stop(rec.roomID))
 	}
-	waitUntilNoActiveRecordings(t, sess.Recorder, 30*time.Second)
-	time.Sleep(recorderTestSettleAfterStop)
+	WaitUntilNoActiveRecordings(t, sess.Recorder, 30*time.Second)
+	time.Sleep(SettleAfterStop)
 
-	afterStop := sess.Monitor.snapshotMemory(t, "after_stop", false)
-	logMemoryDelta(t, during, afterStop)
+	afterStop := sess.Monitor.SnapshotMemory(t, "after_stop", false)
+	LogMemoryDelta(t, during, afterStop)
 
-	afterCleanup := sess.Monitor.snapshotMemoryReleased(t, label+"_after_cleanup")
-	assertRecordingMemoryReleased(t, baseline, afterCleanup, recordingMemoryBudgetForSessions(len(specs), label))
+	afterCleanup := sess.Monitor.SnapshotMemoryReleased(t, label+"_after_cleanup")
+	AssertRecordingMemoryReleased(t, baseline, afterCleanup, MemoryBudgetForSessions(len(specs), label))
 
-	sess.Monitor.logAnalysisHints(t)
+	sess.Monitor.LogAnalysisHints(t)
 
-	if checkFFmpegAvailable(t) {
+	if CheckFFmpegAvailable(t) {
 		for _, rec := range recordings {
-			t.Logf("\n📹 Verifying %s recordings in room dir (room=%d)...", strings.ToUpper(rec.spec.format), rec.roomID)
-			verifyAllRecordingsInRoomDir(t, filepath.Dir(rec.outputPath), rec.spec.format)
+			t.Logf("\n📹 Verifying %s recordings in room dir (room=%d)...", strings.ToUpper(rec.spec.Format), rec.roomID)
+			VerifyAllRecordingsInRoomDir(t, filepath.Dir(rec.outputPath), rec.spec.Format)
 		}
 	}
 }
@@ -892,7 +890,7 @@ func runConcurrentFormatRecordTest(t *testing.T, specs ...concurrentFormatRecord
 // runZZZFinalConcurrentRecordTest exercises concurrent recordings of one format in an
 // isolated go test process so heap/cpu pprof are not polluted by other integration
 // tests. CI runs each ZZZ_Final_* test in a separate workflow step.
-func runZZZFinalConcurrentRecordTest(t *testing.T, profile bilibili.StreamProfile, format string, concurrent int) {
+func RunZZZFinalConcurrentRecordTest(t *testing.T, profile bilibili.StreamProfile, format string, concurrent int) {
 	t.Helper()
 	if testing.Short() {
 		t.Skipf("skipping final concurrent %s record test in short mode", format)
@@ -905,8 +903,8 @@ func runZZZFinalConcurrentRecordTest(t *testing.T, profile bilibili.StreamProfil
 
 	label := fmt.Sprintf("concurrent%d_%s", concurrent, format)
 
-	sess := newRecorderTestSession(t)
-	rooms := resolveLiveTestRoomIDsWithStream(t, sess, concurrent,
+	sess := NewSession(t)
+	rooms := ResolveLiveTestRoomIDsWithStream(t, sess, concurrent,
 		bilibili.WithProfiles(profile),
 		bilibili.WithQn(bilibili.QualityOriginal),
 	)
@@ -922,19 +920,19 @@ func runZZZFinalConcurrentRecordTest(t *testing.T, profile bilibili.StreamProfil
 		),
 	}
 
-	baseline := sess.Monitor.snapshotMemory(t, label+"_baseline", true)
+	baseline := sess.Monitor.SnapshotMemory(t, label+"_baseline", true)
 	sess.Room.InvalidateRooms(rooms...)
 
-	recordDuration := integrationRecordDuration()
+	recordDuration := IntegrationRecordDuration()
 	t.Logf("final concurrent test: format=%s concurrent=%d rooms=%v record_duration=%s", format, concurrent, rooms, recordDuration)
 
-	startPhase, err := sess.Monitor.beginPhase(label + "_start_burst")
+	startPhase, err := sess.Monitor.BeginPhase(label + "_start_burst")
 	if err != nil {
 		t.Fatalf("begin concurrent start phase: %v", err)
 	}
 
 	startGate := make(chan struct{})
-	resultCh := make(chan concurrentStartResult, concurrent)
+	resultCh := make(chan ConcurrentStartResult, concurrent)
 	var wg sync.WaitGroup
 	for _, roomID := range rooms {
 		rid := roomID
@@ -943,17 +941,17 @@ func runZZZFinalConcurrentRecordTest(t *testing.T, profile bilibili.StreamProfil
 			defer wg.Done()
 			<-startGate
 			err := sess.Recorder.Start(rid, startOpts...)
-			resultCh <- concurrentStartResult{room: rid, err: err}
+			resultCh <- ConcurrentStartResult{Room: rid, Err: err}
 		}()
 	}
 	close(startGate)
 	wg.Wait()
 	close(resultCh)
 
-	startReport := startPhase.end(t)
-	logCPUPhase(t, startReport)
+	startReport := startPhase.End(t)
+	LogCPUPhase(t, startReport)
 
-	started := collectConcurrentStartResults(t, sess.Recorder, resultCh)
+	started := CollectConcurrentStartResults(t, sess.Recorder, resultCh)
 
 	if len(started) != concurrent {
 		t.Fatalf("expected %d successful starts, got %d", concurrent, len(started))
@@ -964,14 +962,14 @@ func runZZZFinalConcurrentRecordTest(t *testing.T, profile bilibili.StreamProfil
 
 	outputPaths := make(map[int]string, concurrent)
 	for _, rid := range started {
-		outputPaths[rid] = waitForOutputPathAfterStart(t, sess.Recorder, rid)
+		outputPaths[rid] = WaitForOutputPathAfterStart(t, sess.Recorder, rid)
 	}
 
-	recordReport := sess.Monitor.runRecordingProfiledWait(t, label+"_recording", recordDuration)
-	during := sess.Monitor.snapshotMemory(t, label+"_during", false)
-	sess.Monitor.snapshotGoroutines(t, label+"_during")
-	logCPUPhase(t, recordReport)
-	logMemoryDelta(t, baseline, during)
+	recordReport := sess.Monitor.RunRecordingProfiledWait(t, label+"_recording", recordDuration)
+	during := sess.Monitor.SnapshotMemory(t, label+"_during", false)
+	sess.Monitor.SnapshotGoroutines(t, label+"_during")
+	LogCPUPhase(t, recordReport)
+	LogMemoryDelta(t, baseline, during)
 
 	t.Log("stopping all concurrent recordings")
 	for _, rid := range started {
@@ -979,22 +977,22 @@ func runZZZFinalConcurrentRecordTest(t *testing.T, profile bilibili.StreamProfil
 			t.Logf("stop returned false for room=%d", rid)
 		}
 	}
-	waitUntilNoActiveRecordings(t, sess.Recorder, 30*time.Second)
+	WaitUntilNoActiveRecordings(t, sess.Recorder, 30*time.Second)
 
-	time.Sleep(recorderTestSettleAfterStop)
-	afterStop := sess.Monitor.snapshotMemory(t, label+"_after_stop", false)
-	sess.Monitor.snapshotGoroutines(t, label+"_after_stop")
-	logMemoryDelta(t, during, afterStop)
+	time.Sleep(SettleAfterStop)
+	afterStop := sess.Monitor.SnapshotMemory(t, label+"_after_stop", false)
+	sess.Monitor.SnapshotGoroutines(t, label+"_after_stop")
+	LogMemoryDelta(t, during, afterStop)
 
-	afterCleanup := sess.Monitor.snapshotMemoryReleased(t, label+"_after_cleanup")
-	assertRecordingMemoryReleased(t, baseline, afterCleanup, recordingMemoryBudgetForSessions(concurrent, label))
+	afterCleanup := sess.Monitor.SnapshotMemoryReleased(t, label+"_after_cleanup")
+	AssertRecordingMemoryReleased(t, baseline, afterCleanup, MemoryBudgetForSessions(concurrent, label))
 
-	sess.Monitor.logAnalysisHints(t)
+	sess.Monitor.LogAnalysisHints(t)
 
-	if checkFFmpegAvailable(t) {
+	if CheckFFmpegAvailable(t) {
 		for _, rid := range started {
 			t.Logf("\n📹 Verifying %s recordings in room dir (room=%d)...", strings.ToUpper(format), rid)
-			verifyAllRecordingsInRoomDir(t, filepath.Dir(outputPaths[rid]), format)
+			VerifyAllRecordingsInRoomDir(t, filepath.Dir(outputPaths[rid]), format)
 		}
 	}
 }

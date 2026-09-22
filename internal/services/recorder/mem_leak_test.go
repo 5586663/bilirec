@@ -1,6 +1,7 @@
 package recorder_test
 
 import (
+	"github.com/bilirec/bilirec/internal/testutil/recording"
 	"fmt"
 	"os"
 	"strings"
@@ -40,19 +41,19 @@ func memLeakStartOptionsFromEnv() ([]recorder.RecordStartOption, []bilibili.GetS
 	}, streamOpts, string(profile), nil
 }
 
-func resolveMemLeakLiveTestRoomIDs(tb testing.TB, sess *recorderTestSession, required int) []int {
+func resolveMemLeakLiveTestRoomIDs(tb testing.TB, sess *recording.Session, required int) []int {
 	tb.Helper()
 	_, streamOpts, _, err := memLeakStartOptionsFromEnv()
 	if err != nil {
 		tb.Fatal(err)
 	}
 	if len(streamOpts) == 0 {
-		return resolveLiveTestRoomIDs(tb, sess.Room, required)
+		return recording.ResolveLiveTestRoomIDs(tb, sess.Room, required)
 	}
-	return resolveLiveTestRoomIDsWithStream(tb, sess, required, streamOpts...)
+	return recording.ResolveLiveTestRoomIDsWithStream(tb, sess, required, streamOpts...)
 }
 
-func resolveMemLeakLiveTestRoomID(tb testing.TB, sess *recorderTestSession) int {
+func resolveMemLeakLiveTestRoomID(tb testing.TB, sess *recording.Session) int {
 	tb.Helper()
 	rooms := resolveMemLeakLiveTestRoomIDs(tb, sess, 1)
 	if len(rooms) == 0 {
@@ -61,7 +62,7 @@ func resolveMemLeakLiveTestRoomID(tb testing.TB, sess *recorderTestSession) int 
 	return rooms[0]
 }
 
-func startMemLeakRecording(t *testing.T, sess *recorderTestSession, room int) error {
+func startMemLeakRecording(t *testing.T, sess *recording.Session, room int) error {
 	startOptions, _, profile, err := memLeakStartOptionsFromEnv()
 	if err != nil {
 		return err
@@ -85,31 +86,31 @@ func TestRecorder_MemoryLeak_SingleSession(t *testing.T) {
 		t.Skip("Skipping recorder memory test in short mode")
 	}
 
-	sess := newRecorderTestSession(t)
+	sess := recording.NewSession(t)
 	roomID := resolveMemLeakLiveTestRoomID(t, sess)
 
-	baseline := sess.Monitor.snapshotMemory(t, "baseline", true)
+	baseline := sess.Monitor.SnapshotMemory(t, "baseline", true)
 
 	t.Log("📝 Starting recording session...")
-	startPhase, err := sess.Monitor.beginPhase("memleak_start")
+	startPhase, err := sess.Monitor.BeginPhase("memleak_start")
 	if err != nil {
 		t.Fatalf("begin start phase: %v", err)
 	}
 	startErr := startMemLeakRecording(t, sess, roomID)
-	startReport := startPhase.end(t)
-	handleRecordingStartErr(t, startErr)
-	logCPUPhase(t, startReport)
+	startReport := startPhase.End(t)
+	recording.HandleRecordingStartErr(t, startErr)
+	recording.LogCPUPhase(t, startReport)
 
 	recordDuration := 30 * time.Second
-	recordPhase, err := sess.Monitor.beginPhase("memleak_recording")
+	recordPhase, err := sess.Monitor.BeginPhase("memleak_recording")
 	if err != nil {
 		t.Fatalf("begin recording phase: %v", err)
 	}
 	t.Logf("⏱️  Recording for %v...", recordDuration)
 	time.Sleep(recordDuration)
-	during := sess.Monitor.snapshotMemory(t, "during_recording", false)
-	recordReport := recordPhase.end(t)
-	logCPUPhase(t, recordReport)
+	during := sess.Monitor.SnapshotMemory(t, "during_recording", false)
+	recordReport := recordPhase.End(t)
+	recording.LogCPUPhase(t, recordReport)
 
 	t.Log("🛑 Stopping recording...")
 	if !sess.Recorder.Stop(roomID) {
@@ -117,15 +118,15 @@ func TestRecorder_MemoryLeak_SingleSession(t *testing.T) {
 	}
 	time.Sleep(3 * time.Second)
 
-	afterStop := sess.Monitor.snapshotMemory(t, "after_stop", false)
+	afterStop := sess.Monitor.SnapshotMemory(t, "after_stop", false)
 	t.Log("🧹 Running garbage collection...")
-	afterGC := sess.Monitor.snapshotMemory(t, "after_gc", true)
+	afterGC := sess.Monitor.SnapshotMemory(t, "after_gc", true)
 
 	t.Logf("📊 Memory Analysis:")
 	t.Logf("  Baseline:        %.2f MB", baseline.AllocMB)
-	t.Logf("  During record:   %.2f MB (growth: %+.2f MB)", during.AllocMB, memAllocDiffMB(during, baseline))
-	t.Logf("  After stop:      %.2f MB (retained: %+.2f MB)", afterStop.AllocMB, memAllocDiffMB(afterStop, baseline))
-	t.Logf("  After GC:        %.2f MB (retained: %+.2f MB)", afterGC.AllocMB, memAllocDiffMB(afterGC, baseline))
+	t.Logf("  During record:   %.2f MB (growth: %+.2f MB)", during.AllocMB, recording.MemAllocDiffMB(during, baseline))
+	t.Logf("  After stop:      %.2f MB (retained: %+.2f MB)", afterStop.AllocMB, recording.MemAllocDiffMB(afterStop, baseline))
+	t.Logf("  After GC:        %.2f MB (retained: %+.2f MB)", afterGC.AllocMB, recording.MemAllocDiffMB(afterGC, baseline))
 	t.Logf("  Cleanup:         %.2f MB reclaimed", afterStop.AllocMB-afterGC.AllocMB)
 
 	const (
@@ -133,8 +134,8 @@ func TestRecorder_MemoryLeak_SingleSession(t *testing.T) {
 		maxRetainedAfterGC   = 15.0
 	)
 
-	retainedAfterStop := memAllocDiffMB(afterStop, baseline)
-	retainedAfterGC := memAllocDiffMB(afterGC, baseline)
+	retainedAfterStop := recording.MemAllocDiffMB(afterStop, baseline)
+	retainedAfterGC := recording.MemAllocDiffMB(afterGC, baseline)
 
 	if retainedAfterStop > maxRetainedAfterStop {
 		t.Logf("⚠️  Warning: high memory after stop: %.2f MB retained (threshold: %.2f MB)",
@@ -150,7 +151,7 @@ func TestRecorder_MemoryLeak_SingleSession(t *testing.T) {
 
 	cleanupEfficiency := (afterStop.AllocMB - afterGC.AllocMB) / (during.AllocMB - baseline.AllocMB) * 100
 	t.Logf("📈 Cleanup efficiency: %.1f%%", cleanupEfficiency)
-	sess.Monitor.logAnalysisHints(t)
+	sess.Monitor.LogAnalysisHints(t)
 }
 
 func TestRecorder_MemoryLeak_MultipleStartStop(t *testing.T) {
@@ -158,10 +159,10 @@ func TestRecorder_MemoryLeak_MultipleStartStop(t *testing.T) {
 		t.Skip("Skipping multiple session test in short mode")
 	}
 
-	sess := newRecorderTestSession(t)
+	sess := recording.NewSession(t)
 	roomID := resolveMemLeakLiveTestRoomID(t, sess)
 
-	baseline := sess.Monitor.snapshotMemory(t, "baseline", true)
+	baseline := sess.Monitor.SnapshotMemory(t, "baseline", true)
 
 	const cycles = 5
 	t.Logf("🔄 Testing %d record/stop cycles...", cycles)
@@ -172,14 +173,14 @@ func TestRecorder_MemoryLeak_MultipleStartStop(t *testing.T) {
 	for cycle := 0; cycle < cycles; cycle++ {
 		t.Logf("Cycle %d/%d", cycle+1, cycles)
 
-		phase, err := sess.Monitor.beginPhase(fmt.Sprintf("cycle_%d_start", cycle+1))
+		phase, err := sess.Monitor.BeginPhase(fmt.Sprintf("cycle_%d_start", cycle+1))
 		if err != nil {
 			t.Fatalf("cycle %d begin phase: %v", cycle+1, err)
 		}
 		startErr := startMemLeakRecording(t, sess, roomID)
-		report := phase.end(t)
-		handleRecordingStartErr(t, startErr)
-		logCPUPhase(t, report)
+		report := phase.End(t)
+		recording.HandleRecordingStartErr(t, startErr)
+		recording.LogCPUPhase(t, report)
 
 		time.Sleep(10 * time.Second)
 
@@ -188,7 +189,7 @@ func TestRecorder_MemoryLeak_MultipleStartStop(t *testing.T) {
 		}
 		time.Sleep(2 * time.Second)
 
-		snap := sess.Monitor.snapshotMemory(t, fmt.Sprintf("cycle_%d_after_gc", cycle+1), true)
+		snap := sess.Monitor.SnapshotMemory(t, fmt.Sprintf("cycle_%d_after_gc", cycle+1), true)
 		memSamples[cycle+1] = snap.AllocMB
 		t.Logf("  Memory after cycle %d: %.2f MB", cycle+1, memSamples[cycle+1])
 	}
@@ -212,7 +213,7 @@ func TestRecorder_MemoryLeak_MultipleStartStop(t *testing.T) {
 	if totalGrowth > 25.0 {
 		t.Errorf("⚠️  Excessive memory growth: %.2f MB after %d cycles", totalGrowth, cycles)
 	}
-	sess.Monitor.logAnalysisHints(t)
+	sess.Monitor.LogAnalysisHints(t)
 }
 
 func TestRecorder_MemoryLeak_ProcessedDataCleanup(t *testing.T) {
@@ -220,33 +221,33 @@ func TestRecorder_MemoryLeak_ProcessedDataCleanup(t *testing.T) {
 		t.Skip("Skipping in short mode")
 	}
 
-	sess := newRecorderTestSession(t)
+	sess := recording.NewSession(t)
 	roomID := resolveMemLeakLiveTestRoomID(t, sess)
 
-	baseline := sess.Monitor.snapshotMemory(t, "baseline", true)
+	baseline := sess.Monitor.SnapshotMemory(t, "baseline", true)
 
-	startPhase, err := sess.Monitor.beginPhase("processed_data_start")
+	startPhase, err := sess.Monitor.BeginPhase("processed_data_start")
 	if err != nil {
 		t.Fatalf("begin start phase: %v", err)
 	}
 	startErr := startMemLeakRecording(t, sess, roomID)
-	startReport := startPhase.end(t)
-	handleRecordingStartErr(t, startErr)
-	logCPUPhase(t, startReport)
+	startReport := startPhase.End(t)
+	recording.HandleRecordingStartErr(t, startErr)
+	recording.LogCPUPhase(t, startReport)
 
 	t.Log("⏱️  Recording to test processedData cleanup...")
-	recordPhase, err := sess.Monitor.beginPhase("processed_data_recording")
+	recordPhase, err := sess.Monitor.BeginPhase("processed_data_recording")
 	if err != nil {
 		t.Fatalf("begin recording phase: %v", err)
 	}
 	time.Sleep(20 * time.Second)
-	_ = recordPhase.end(t)
+	_ = recordPhase.End(t)
 
 	sess.Recorder.Stop(roomID)
 	time.Sleep(1 * time.Second)
-	afterCleanup := sess.Monitor.snapshotMemory(t, "after_cleanup", true)
+	afterCleanup := sess.Monitor.SnapshotMemory(t, "after_cleanup", true)
 
-	retained := memAllocDiffMB(afterCleanup, baseline)
+	retained := recording.MemAllocDiffMB(afterCleanup, baseline)
 	t.Logf("📊 ProcessedData Cleanup Test:")
 	t.Logf("  Baseline:       %.2f MB", baseline.AllocMB)
 	t.Logf("  After cleanup:  %.2f MB", afterCleanup.AllocMB)
@@ -257,7 +258,7 @@ func TestRecorder_MemoryLeak_ProcessedDataCleanup(t *testing.T) {
 	} else {
 		t.Logf("✅ ProcessedData properly cleared by GC")
 	}
-	sess.Monitor.logAnalysisHints(t)
+	sess.Monitor.LogAnalysisHints(t)
 }
 
 func TestRecorder_MemoryLeak_ConcurrentRecordings(t *testing.T) {
@@ -265,10 +266,10 @@ func TestRecorder_MemoryLeak_ConcurrentRecordings(t *testing.T) {
 		t.Skip("Skipping concurrent test in short mode")
 	}
 
-	sess := newRecorderTestSession(t)
+	sess := recording.NewSession(t)
 	testRooms := resolveMemLeakLiveTestRoomIDs(t, sess, 2)
 
-	baseline := sess.Monitor.snapshotMemory(t, "baseline", true)
+	baseline := sess.Monitor.SnapshotMemory(t, "baseline", true)
 	t.Logf("🔀 Testing concurrent recordings for %d rooms", len(testRooms))
 
 	startedRooms := []int{}
@@ -294,13 +295,13 @@ func TestRecorder_MemoryLeak_ConcurrentRecordings(t *testing.T) {
 		t.Skip("No rooms available for testing")
 	}
 
-	recordPhase, err := sess.Monitor.beginPhase("concurrent_recording")
+	recordPhase, err := sess.Monitor.BeginPhase("concurrent_recording")
 	if err != nil {
 		t.Fatalf("begin recording phase: %v", err)
 	}
 	time.Sleep(20 * time.Second)
-	during := sess.Monitor.snapshotMemory(t, "during_concurrent", false)
-	_ = recordPhase.end(t)
+	during := sess.Monitor.SnapshotMemory(t, "during_concurrent", false)
+	_ = recordPhase.End(t)
 
 	for _, room := range startedRooms {
 		sess.Recorder.Stop(room)
@@ -308,23 +309,23 @@ func TestRecorder_MemoryLeak_ConcurrentRecordings(t *testing.T) {
 	}
 
 	time.Sleep(3 * time.Second)
-	afterCleanup := sess.Monitor.snapshotMemory(t, "after_cleanup", true)
+	afterCleanup := sess.Monitor.SnapshotMemory(t, "after_cleanup", true)
 
 	t.Logf("📊 Concurrent Recording Analysis:")
 	t.Logf("  Baseline:         %.2f MB", baseline.AllocMB)
 	t.Logf("  During recording: %.2f MB", during.AllocMB)
 	t.Logf("  After cleanup:    %.2f MB", afterCleanup.AllocMB)
-	t.Logf("  Retained:         %.2f MB", memAllocDiffMB(afterCleanup, baseline))
+	t.Logf("  Retained:         %.2f MB", recording.MemAllocDiffMB(afterCleanup, baseline))
 
 	maxRetained := 20.0 * float64(len(startedRooms))
-	retained := memAllocDiffMB(afterCleanup, baseline)
+	retained := recording.MemAllocDiffMB(afterCleanup, baseline)
 	if retained > maxRetained {
 		t.Errorf("⚠️  Possible leak in concurrent scenario: %.2f MB retained (threshold: %.2f MB)",
 			retained, maxRetained)
 	} else {
 		t.Logf("✅ Concurrent recordings cleaned up properly")
 	}
-	sess.Monitor.logAnalysisHints(t)
+	sess.Monitor.LogAnalysisHints(t)
 }
 
 func TestRecorder_Goroutine_Leak(t *testing.T) {
@@ -332,36 +333,36 @@ func TestRecorder_Goroutine_Leak(t *testing.T) {
 		t.Skip("Skipping goroutine leak test in short mode")
 	}
 
-	sess := newRecorderTestSession(t)
+	sess := recording.NewSession(t)
 	roomID := resolveMemLeakLiveTestRoomID(t, sess)
 
 	time.Sleep(1 * time.Second)
-	baseline := sess.Monitor.snapshotGoroutines(t, "baseline")
+	baseline := sess.Monitor.SnapshotGoroutines(t, "baseline")
 
 	const cycles = 3
 	for cycle := 0; cycle < cycles; cycle++ {
 		t.Logf("Cycle %d/%d", cycle+1, cycles)
 
-		phase, err := sess.Monitor.beginPhase(fmt.Sprintf("goroutine_cycle_%d", cycle+1))
+		phase, err := sess.Monitor.BeginPhase(fmt.Sprintf("goroutine_cycle_%d", cycle+1))
 		if err != nil {
 			t.Fatalf("cycle %d begin phase: %v", cycle+1, err)
 		}
 		startErr := startMemLeakRecording(t, sess, roomID)
-		_ = phase.end(t)
-		handleRecordingStartErr(t, startErr)
+		_ = phase.End(t)
+		recording.HandleRecordingStartErr(t, startErr)
 
 		time.Sleep(8 * time.Second)
-		during := sess.Monitor.snapshotGoroutines(t, fmt.Sprintf("cycle_%d_during", cycle+1))
+		during := sess.Monitor.SnapshotGoroutines(t, fmt.Sprintf("cycle_%d_during", cycle+1))
 		t.Logf("  During recording: +%d vs baseline", during-baseline)
 
 		sess.Recorder.Stop(roomID)
 		time.Sleep(2 * time.Second)
-		afterStop := sess.Monitor.snapshotGoroutines(t, fmt.Sprintf("cycle_%d_after_stop", cycle+1))
+		afterStop := sess.Monitor.SnapshotGoroutines(t, fmt.Sprintf("cycle_%d_after_stop", cycle+1))
 		t.Logf("  After stop: +%d vs baseline", afterStop-baseline)
 	}
 
 	time.Sleep(2 * time.Second)
-	final := sess.Monitor.snapshotGoroutines(t, "final")
+	final := sess.Monitor.SnapshotGoroutines(t, "final")
 	growth := final - baseline
 
 	t.Logf("📊 Goroutine Analysis:")
@@ -374,5 +375,5 @@ func TestRecorder_Goroutine_Leak(t *testing.T) {
 	} else {
 		t.Logf("✅ No goroutine leak detected")
 	}
-	sess.Monitor.logAnalysisHints(t)
+	sess.Monitor.LogAnalysisHints(t)
 }

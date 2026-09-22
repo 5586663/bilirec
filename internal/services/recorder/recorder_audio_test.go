@@ -1,6 +1,7 @@
 package recorder_test
 
 import (
+	"github.com/bilirec/bilirec/internal/testutil/recording"
 	"bytes"
 	"encoding/json"
 	"os"
@@ -12,6 +13,15 @@ import (
 	"github.com/bilirec/bilirec/internal/services/recorder"
 	"github.com/bilirec/bilirec/utils"
 )
+
+type ffprobeStreamInfo struct {
+	CodecType  string `json:"codec_type"`
+	CodecName  string `json:"codec_name"`
+	Width      int    `json:"width,omitempty"`
+	Height     int    `json:"height,omitempty"`
+	SampleRate string `json:"sample_rate,omitempty"`
+	Channels   int    `json:"channels,omitempty"`
+}
 
 type ffprobeAudioOnlyOutput struct {
 	Streams []ffprobeStreamInfo `json:"streams"`
@@ -38,16 +48,16 @@ func runAudioOnlyRecordForProfile(t *testing.T, profile bilibili.StreamProfile) 
 
 	recordWait := time.Duration(utils.Ternary(os.Getenv("CI") != "", 2, 1)) * time.Minute
 
-	sess := newRecorderTestSession(t)
-	room := resolveLiveTestRoomIDWithStream(t, sess,
+	sess := recording.NewSession(t)
+	room := recording.ResolveLiveTestRoomIDWithStream(t, sess,
 		bilibili.WithProfiles(profile),
 		bilibili.WithOnlyAudio(true),
 	)
 
-	baseline := sess.Monitor.snapshotMemory(t, "baseline", true)
+	baseline := sess.Monitor.SnapshotMemory(t, "baseline", true)
 
 	t.Logf("starting audio-only recording with profile %s, will record for %v", profile, recordWait)
-	startPhase, err := sess.Monitor.beginPhase("audio_only_start")
+	startPhase, err := sess.Monitor.BeginPhase("audio_only_start")
 	if err != nil {
 		t.Fatalf("begin start phase: %v", err)
 	}
@@ -57,30 +67,30 @@ func runAudioOnlyRecordForProfile(t *testing.T, profile bilibili.StreamProfile) 
 			bilibili.WithOnlyAudio(true),
 		),
 	)
-	startReport := startPhase.end(t)
-	handleRecordingStartErr(t, startErr)
-	logCPUPhase(t, startReport)
+	startReport := startPhase.End(t)
+	recording.HandleRecordingStartErr(t, startErr)
+	recording.LogCPUPhase(t, startReport)
 
 	if status := sess.Recorder.GetStatus(room); status != recorder.Recording {
 		t.Fatalf("expected status %q immediately after start, got %q", recorder.Recording, status)
 	}
 
-	outputPath := waitForOutputPathAfterStart(t, sess.Recorder, room)
+	outputPath := recording.WaitForOutputPathAfterStart(t, sess.Recorder, room)
 
-	_ = sess.Monitor.runRecordingProfiledWait(t, "audio_only_recording", recordWait)
-	during := sess.Monitor.snapshotMemory(t, "during_recording", false)
-	logMemoryDelta(t, baseline, during)
+	_ = sess.Monitor.RunRecordingProfiledWait(t, "audio_only_recording", recordWait)
+	during := sess.Monitor.SnapshotMemory(t, "during_recording", false)
+	recording.LogMemoryDelta(t, baseline, during)
 
 	t.Log("stopping recording manually")
 	if stopped := sess.Recorder.Stop(room); !stopped {
 		t.Error("expected recorder stop to return true")
 	}
 
-	time.Sleep(recorderTestSettleAfterStop)
-	sess.Monitor.snapshotMemory(t, "after_stop", false)
-	sess.Monitor.logAnalysisHints(t)
+	time.Sleep(recording.SettleAfterStop)
+	sess.Monitor.SnapshotMemory(t, "after_stop", false)
+	sess.Monitor.LogAnalysisHints(t)
 
-	if checkFFmpegAvailable(t) {
+	if recording.CheckFFmpegAvailable(t) {
 		t.Log("\n📹 Verifying audio-only recording via ffprobe...")
 		verifyAudioOnlyRecording(t, outputPath)
 	}

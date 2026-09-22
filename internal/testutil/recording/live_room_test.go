@@ -1,4 +1,4 @@
-package recorder_test
+package recording
 
 import (
 	"slices"
@@ -9,10 +9,10 @@ import (
 
 func TestStreamSlotPickOrder_PrefersScarceFormats(t *testing.T) {
 	t.Parallel()
-	slots := []liveStreamSlot{
-		liveStreamSlotForProfile(bilibili.ProfileHTTPFLV),
-		liveStreamSlotForProfile(bilibili.ProfileHLSFMP4),
-		liveStreamSlotForProfile(bilibili.ProfileHLSTS, bilibili.WithOnlyAudio(true)),
+	slots := []LiveStreamSlot{
+		LiveStreamSlotForProfile(bilibili.ProfileHTTPFLV),
+		LiveStreamSlotForProfile(bilibili.ProfileHLSFMP4),
+		LiveStreamSlotForProfile(bilibili.ProfileHLSTS, bilibili.WithOnlyAudio(true)),
 	}
 	got := streamSlotPickOrder(slots)
 	want := []int{2, 1, 0}

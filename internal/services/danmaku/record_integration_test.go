@@ -1,6 +1,7 @@
-package recorder_test
+package danmaku_test
 
 import (
+	"github.com/bilirec/bilirec/internal/testutil/recording"
 	"bufio"
 	"encoding/json"
 	"encoding/xml"
@@ -201,14 +202,14 @@ func runDanmakuRecordTest(t *testing.T, format string) {
 
 	t.Setenv("DANMAKU_OUTPUT_FORMAT", format)
 
-	sess := newRecorderTestSession(t)
+	sess := recording.NewSession(t)
 	// Pin a high-traffic room via BILIBILI_TEST_ROOM_ID when needed (e.g. 1947277414).
-	roomID := resolveLiveTestRoomID(t, sess.Room)
+	roomID := recording.ResolveLiveTestRoomID(t, sess.Room)
 
 	startErr := sess.Recorder.Start(roomID, recorder.WithRecordDanmaku(true))
-	handleRecordingStartErr(t, startErr)
+	recording.HandleRecordingStartErr(t, startErr)
 
-	outputPath := waitForOutputPathAfterStart(t, sess.Recorder, roomID)
+	outputPath := recording.WaitForOutputPathAfterStart(t, sess.Recorder, roomID)
 	sidecarPath := danmaku.PathForVideo(outputPath, "."+format)
 
 	const recordDuration = 75 * time.Second
@@ -218,7 +219,7 @@ func runDanmakuRecordTest(t *testing.T, format string) {
 	if !sess.Recorder.Stop(roomID) {
 		t.Error("failed to stop recording")
 	}
-	waitUntilNoActiveRecordings(t, sess.Recorder, 30*time.Second)
+	recording.WaitUntilNoActiveRecordings(t, sess.Recorder, 30*time.Second)
 
 	switch format {
 	case "jsonl":
@@ -261,8 +262,8 @@ func runDanmakuRecordTest(t *testing.T, format string) {
 		t.Fatalf("unsupported danmaku format %q", format)
 	}
 
-	if checkFFmpegAvailable(t) {
-		verifyAllRecordingsInRoomDir(t, filepath.Dir(outputPath), videoFormatFromPath(t, outputPath))
+	if recording.CheckFFmpegAvailable(t) {
+		recording.VerifyAllRecordingsInRoomDir(t, filepath.Dir(outputPath), videoFormatFromPath(t, outputPath))
 	}
 }
 
@@ -271,16 +272,16 @@ func TestDanmakuRecord_Disabled(t *testing.T) {
 		t.Skip("skipping danmaku disabled test in short mode")
 	}
 
-	sess := newRecorderTestSession(t)
-	roomID := resolveLiveTestRoomID(t, sess.Room)
+	sess := recording.NewSession(t)
+	roomID := recording.ResolveLiveTestRoomID(t, sess.Room)
 
 	time.Sleep(time.Second)
-	baselineGoroutines := sess.Monitor.snapshotGoroutines(t, "danmaku_disabled_baseline")
+	baselineGoroutines := sess.Monitor.SnapshotGoroutines(t, "danmaku_disabled_baseline")
 
 	startErr := sess.Recorder.Start(roomID)
-	handleRecordingStartErr(t, startErr)
+	recording.HandleRecordingStartErr(t, startErr)
 
-	outputPath := waitForOutputPathAfterStart(t, sess.Recorder, roomID)
+	outputPath := recording.WaitForOutputPathAfterStart(t, sess.Recorder, roomID)
 	roomDir := filepath.Dir(outputPath)
 	existingSidecars := make(map[string]struct{})
 	for _, pattern := range []string{"*.xml", "*.jsonl"} {
@@ -305,8 +306,8 @@ func TestDanmakuRecord_Disabled(t *testing.T) {
 	if !sess.Recorder.Stop(roomID) {
 		t.Error("failed to stop recording")
 	}
-	waitUntilNoActiveRecordings(t, sess.Recorder, 30*time.Second)
-	time.Sleep(recorderTestSettleAfterStop)
+	recording.WaitUntilNoActiveRecordings(t, sess.Recorder, 30*time.Second)
+	time.Sleep(recording.SettleAfterStop)
 
 	if n := sess.Danmaku.ActiveSessions(); n != 0 {
 		t.Errorf("danmaku disabled but %d active session(s) after stop", n)
@@ -328,7 +329,7 @@ func TestDanmakuRecord_Disabled(t *testing.T) {
 		t.Errorf("danmaku disabled but new sidecar files exist: %v", newSidecars)
 	}
 
-	afterGoroutines := sess.Monitor.snapshotGoroutines(t, "danmaku_disabled_after_stop")
+	afterGoroutines := sess.Monitor.SnapshotGoroutines(t, "danmaku_disabled_after_stop")
 	if growth := afterGoroutines - baselineGoroutines; growth > 10 {
 		t.Errorf("goroutines grew from %d to %d with danmaku disabled; possible leak", baselineGoroutines, afterGoroutines)
 	}

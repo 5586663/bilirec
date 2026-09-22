@@ -1,6 +1,7 @@
 package recorder_test
 
 import (
+	"github.com/bilirec/bilirec/internal/testutil/recording"
 	"testing"
 	"time"
 
@@ -19,8 +20,8 @@ func TestRecorder_Start_CPUSpike_FLV1080p(t *testing.T) {
 		t.Skip("skipping CPU spike test in short mode")
 	}
 
-	sess := newRecorderTestSession(t)
-	roomID := resolveLiveTestRoomIDWithStream(t, sess, httpFlvOriginalStreamOpts()...)
+	sess := recording.NewSession(t)
+	roomID := recording.ResolveLiveTestRoomIDWithStream(t, sess, recording.HTTPFlvOriginalStreamOpts()...)
 	sess.Room.InvalidateRooms(roomID)
 
 	startOptions := []recorder.RecordStartOption{
@@ -30,32 +31,32 @@ func TestRecorder_Start_CPUSpike_FLV1080p(t *testing.T) {
 		),
 	}
 
-	steadySample := recorderCPUSteadySampleDuration()
+	steadySample := recording.CPUSteadySampleDuration()
 
-	startPhase, err := sess.Monitor.beginPhase("recorder_start_spike")
+	startPhase, err := sess.Monitor.BeginPhase("recorder_start_spike")
 	if err != nil {
 		t.Fatalf("begin start phase: %v", err)
 	}
 	startErr := sess.Recorder.Start(roomID, startOptions...)
-	startReport := startPhase.end(t)
-	handleRecordingStartErr(t, startErr)
-	logCPUPhase(t, startReport)
+	startReport := startPhase.End(t)
+	recording.HandleRecordingStartErr(t, startErr)
+	recording.LogCPUPhase(t, startReport)
 
 	defer func() {
 		_ = sess.Recorder.Stop(roomID)
-		waitUntilNoActiveRecordings(t, sess.Recorder, 12*time.Second)
+		recording.WaitUntilNoActiveRecordings(t, sess.Recorder, 12*time.Second)
 	}()
 
 	time.Sleep(200 * time.Millisecond)
 
-	steadyPhase, err := sess.Monitor.beginPhase("recorder_steady_state")
+	steadyPhase, err := sess.Monitor.BeginPhase("recorder_steady_state")
 	if err != nil {
 		t.Fatalf("begin steady phase: %v", err)
 	}
-	avgCPU := sess.Monitor.measureAvgCPU(t, steadySample)
-	steadyReport := steadyPhase.end(t)
+	avgCPU := sess.Monitor.MeasureAvgCPU(t, steadySample)
+	steadyReport := steadyPhase.End(t)
 	steadyReport.AvgCPUPercent = avgCPU
-	logCPUPhase(t, steadyReport)
+	recording.LogCPUPhase(t, steadyReport)
 
 	if startReport.UtilPercent > 0 && steadyReport.UtilPercent > 0 {
 		t.Logf("start/steady util ratio: %.2fx", startReport.UtilPercent/steadyReport.UtilPercent)
@@ -64,7 +65,7 @@ func TestRecorder_Start_CPUSpike_FLV1080p(t *testing.T) {
 		t.Logf("start util vs steady avg_cpu: %.1f%% vs %.1f%%", startReport.UtilPercent, steadyReport.AvgCPUPercent)
 	}
 
-	sess.Monitor.logAnalysisHints(t)
+	sess.Monitor.LogAnalysisHints(t)
 }
 
 func TestRecorder_Start_CPUSpike_ColdVsWarm(t *testing.T) {
@@ -72,8 +73,8 @@ func TestRecorder_Start_CPUSpike_ColdVsWarm(t *testing.T) {
 		t.Skip("skipping CPU cold/warm test in short mode")
 	}
 
-	sess := newRecorderTestSession(t)
-	roomID := resolveLiveTestRoomIDWithStream(t, sess, httpFlvOriginalStreamOpts()...)
+	sess := recording.NewSession(t)
+	roomID := recording.ResolveLiveTestRoomIDWithStream(t, sess, recording.HTTPFlvOriginalStreamOpts()...)
 	startOptions := []recorder.RecordStartOption{
 		recorder.WithStreamOptions(
 			bilibili.WithProfiles(bilibili.ProfileHTTPFLV),
@@ -81,24 +82,24 @@ func TestRecorder_Start_CPUSpike_ColdVsWarm(t *testing.T) {
 		),
 	}
 
-	measure := func(label string) cpuPhaseReport {
+	measure := func(label string) recording.CPUPhaseReport {
 		sess.Room.InvalidateRooms(roomID)
 
-		phase, err := sess.Monitor.beginPhase(label)
+		phase, err := sess.Monitor.BeginPhase(label)
 		if err != nil {
 			t.Fatalf("%s begin phase: %v", label, err)
 		}
 
 		startErr := sess.Recorder.Start(roomID, startOptions...)
-		report := phase.end(t)
-		handleRecordingStartErr(t, startErr)
-		logCPUPhase(t, report)
+		report := phase.End(t)
+		recording.HandleRecordingStartErr(t, startErr)
+		recording.LogCPUPhase(t, report)
 
 		time.Sleep(500 * time.Millisecond)
 		if !sess.Recorder.Stop(roomID) {
 			t.Logf("%s Stop returned false (recording may already be gone)", label)
 		}
-		waitUntilNoActiveRecordings(t, sess.Recorder, 12*time.Second)
+		recording.WaitUntilNoActiveRecordings(t, sess.Recorder, 12*time.Second)
 		time.Sleep(300 * time.Millisecond)
 		return report
 	}
@@ -111,5 +112,5 @@ func TestRecorder_Start_CPUSpike_ColdVsWarm(t *testing.T) {
 	if warm.UtilPercent > 0 {
 		t.Logf("cold/warm util ratio: %.2fx", cold.UtilPercent/warm.UtilPercent)
 	}
-	sess.Monitor.logAnalysisHints(t)
+	sess.Monitor.LogAnalysisHints(t)
 }

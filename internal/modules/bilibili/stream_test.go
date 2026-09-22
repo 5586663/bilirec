@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/bilirec/bilirec/internal/modules/config"
-	"github.com/bilirec/bilirec/internal/testutil"
+	"github.com/bilirec/bilirec/internal/testutil/live"
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxtest"
 )
@@ -28,7 +28,7 @@ func TestGetStreamURLsV2WithDolbyQn(t *testing.T) {
 	app.RequireStart()
 	defer app.RequireStop()
 
-	roomID := testutil.LiveRoomID(t)
+	roomID := live.LiveRoomID(t)
 
 	quality := QualityDolby
 
@@ -58,7 +58,7 @@ func TestGetStreamUrlsV2OnlyAudioManyRooms(t *testing.T) {
 	app.RequireStart()
 	defer app.RequireStop()
 
-	roomIDs := testutil.LiveRoomIDs(t, 10)
+	roomIDs := live.LiveRoomIDs(t, 10)
 	if len(roomIDs) == 0 {
 		t.Skip("no live room ids available")
 	}
@@ -102,7 +102,7 @@ func TestGetStreamUrlsV2NonAudioHasNoPtype1(t *testing.T) {
 	app.RequireStart()
 	defer app.RequireStop()
 
-	roomIDs := testutil.LiveRoomIDs(t, 10)
+	roomIDs := live.LiveRoomIDs(t, 10)
 	if len(roomIDs) == 0 {
 		t.Skip("no live room ids available")
 	}
@@ -146,7 +146,7 @@ func TestGetStreamUrlsV2OnlyAudioExperimental(t *testing.T) {
 	app.RequireStart()
 	defer app.RequireStop()
 
-	roomID := testutil.LiveRoomID(t)
+	roomID := live.LiveRoomID(t)
 
 	normalResults, err := fetchStreamQueryParams(t, client, roomID)
 	if err != nil {

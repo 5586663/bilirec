@@ -1,6 +1,7 @@
-package recorder_test
+package danmaku_test
 
 import (
+	"github.com/bilirec/bilirec/internal/testutil/recording"
 	"fmt"
 	"os"
 	"sort"
@@ -17,13 +18,13 @@ import (
 func danmakuRecordStartOptions() []recorder.RecordStartOption {
 	return []recorder.RecordStartOption{
 		recorder.WithRecordDanmaku(true),
-		recorder.WithStreamOptions(originalQualityStreamOpts()...),
+		recorder.WithStreamOptions(recording.OriginalQualityStreamOpts()...),
 	}
 }
 
 func videoOnlyStartOptions() []recorder.RecordStartOption {
 	return []recorder.RecordStartOption{
-		recorder.WithStreamOptions(originalQualityStreamOpts()...),
+		recorder.WithStreamOptions(recording.OriginalQualityStreamOpts()...),
 	}
 }
 
@@ -60,7 +61,7 @@ func waitForDanmakuSessions(t *testing.T, svc *danmaku.Service, want int, timeou
 	t.Fatalf("danmaku sessions = %d, want %d after %s", svc.ActiveSessions(), want, timeout)
 }
 
-func startDanmakuRecording(t *testing.T, sess *recorderTestSession, room int) error {
+func startDanmakuRecording(t *testing.T, sess *recording.Session, room int) error {
 	t.Helper()
 	sess.Room.InvalidateRooms(room)
 	isLive, err := sess.Room.IsRoomLive(room)
@@ -98,9 +99,9 @@ func TestDanmakuJsonlRecord_Perf(t *testing.T) {
 // TestZZZ_Final_DanmakuJsonlRecord is an isolated soak so heap/cpu pprof are
 // not polluted by other integration tests. CI runs it in a separate step:
 //
-//	go test ./internal/services/recorder -run TestZZZ_Final_DanmakuJsonlRecord -count=1 -timeout 30m
+//	go test ./internal/services/danmaku -run TestZZZ_Final_DanmakuJsonlRecord -count=1 -timeout 30m
 func TestZZZ_Final_DanmakuJsonlRecord(t *testing.T) {
-	runDanmakuProfiledRecordTest(t, "jsonl", integrationRecordDuration())
+	runDanmakuProfiledRecordTest(t, "jsonl", recording.IntegrationRecordDuration())
 }
 
 func runDanmakuProfiledRecordTest(t *testing.T, format string, recordDuration time.Duration) {
@@ -111,32 +112,32 @@ func runDanmakuProfiledRecordTest(t *testing.T, format string, recordDuration ti
 
 	t.Setenv("DANMAKU_OUTPUT_FORMAT", format)
 
-	sess := newRecorderTestSession(t)
-	roomID := resolveLiveTestRoomIDWithStream(t, sess, originalQualityStreamOpts()...)
+	sess := recording.NewSession(t)
+	roomID := recording.ResolveLiveTestRoomIDWithStream(t, sess, recording.OriginalQualityStreamOpts()...)
 
-	baseline := sess.Monitor.snapshotMemory(t, "danmaku_baseline", true)
-	baselineG := sess.Monitor.snapshotGoroutines(t, "danmaku_baseline")
+	baseline := sess.Monitor.SnapshotMemory(t, "danmaku_baseline", true)
+	baselineG := sess.Monitor.SnapshotGoroutines(t, "danmaku_baseline")
 
-	startPhase, err := sess.Monitor.beginPhase("danmaku_" + format + "_start")
+	startPhase, err := sess.Monitor.BeginPhase("danmaku_" + format + "_start")
 	if err != nil {
 		t.Fatalf("begin start phase: %v", err)
 	}
 	startErr := startDanmakuRecording(t, sess, roomID)
-	startReport := startPhase.end(t)
-	handleRecordingStartErr(t, startErr)
-	logCPUPhase(t, startReport)
+	startReport := startPhase.End(t)
+	recording.HandleRecordingStartErr(t, startErr)
+	recording.LogCPUPhase(t, startReport)
 
-	outputPath := waitForOutputPathAfterStart(t, sess.Recorder, roomID)
+	outputPath := recording.WaitForOutputPathAfterStart(t, sess.Recorder, roomID)
 	waitForDanmakuSession(t, sess.Danmaku, 15*time.Second)
 	sidecarPath := danmaku.PathForVideo(outputPath, "."+format)
 
 	t.Logf("danmaku perf record: format=%s room=%d duration=%s video=%s sidecar=%s",
 		format, roomID, recordDuration, outputPath, sidecarPath)
 
-	recordReport := sess.Monitor.runRecordingProfiledWait(t, "danmaku_"+format+"_recording", recordDuration)
-	during := sess.Monitor.snapshotMemory(t, "danmaku_during", false)
-	duringG := sess.Monitor.snapshotGoroutines(t, "danmaku_during")
-	logMemoryDelta(t, baseline, during)
+	recordReport := sess.Monitor.RunRecordingProfiledWait(t, "danmaku_"+format+"_recording", recordDuration)
+	during := sess.Monitor.SnapshotMemory(t, "danmaku_during", false)
+	duringG := sess.Monitor.SnapshotGoroutines(t, "danmaku_during")
+	recording.LogMemoryDelta(t, baseline, during)
 
 	t.Logf("active danmaku sessions after soak window: %d", sess.Danmaku.ActiveSessions())
 	bytesWritten := sess.Danmaku.GetBytesWritten(roomID)
@@ -145,16 +146,16 @@ func runDanmakuProfiledRecordTest(t *testing.T, format string, recordDuration ti
 	// (streamer offline past MaxRetryMinutes). Stop() returning false is not a failure.
 	t.Log("stopping recording")
 	t.Logf("stop success: %v", sess.Recorder.Stop(roomID))
-	waitUntilNoActiveRecordings(t, sess.Recorder, 30*time.Second)
+	recording.WaitUntilNoActiveRecordings(t, sess.Recorder, 30*time.Second)
 	waitUntilNoDanmakuSessions(t, sess.Danmaku, 15*time.Second)
-	time.Sleep(recorderTestSettleAfterStop)
+	time.Sleep(recording.SettleAfterStop)
 
-	afterStop := sess.Monitor.snapshotMemory(t, "danmaku_after_stop", false)
-	logMemoryDelta(t, during, afterStop)
+	afterStop := sess.Monitor.SnapshotMemory(t, "danmaku_after_stop", false)
+	recording.LogMemoryDelta(t, during, afterStop)
 
-	afterCleanup := sess.Monitor.snapshotMemoryReleased(t, "danmaku_"+format+"_after_cleanup")
-	afterG := sess.Monitor.snapshotGoroutines(t, "danmaku_after_cleanup")
-	assertRecordingMemoryReleased(t, baseline, afterCleanup, recordingMemoryBudgetForSessions(1, "danmaku_"+format))
+	afterCleanup := sess.Monitor.SnapshotMemoryReleased(t, "danmaku_"+format+"_after_cleanup")
+	afterG := sess.Monitor.SnapshotGoroutines(t, "danmaku_after_cleanup")
+	recording.AssertRecordingMemoryReleased(t, baseline, afterCleanup, recording.MemoryBudgetForSessions(1, "danmaku_"+format))
 
 	logDanmakuRecorderMetric(t, "danmaku_profiled_record", map[string]any{
 		"format":            format,
@@ -162,8 +163,8 @@ func runDanmakuProfiledRecordTest(t *testing.T, format string, recordDuration ti
 		"start_util_pct":    fmt.Sprintf("%.1f", startReport.UtilPercent),
 		"record_util_pct":   fmt.Sprintf("%.1f", recordReport.UtilPercent),
 		"during_alloc_mb":   fmt.Sprintf("%.2f", during.AllocMB),
-		"retained_alloc_mb": fmt.Sprintf("%.2f", memAllocDiffMB(afterCleanup, baseline)),
-		"retained_sys_mb":   fmt.Sprintf("%.2f", memSysDiffMB(afterCleanup, baseline)),
+		"retained_alloc_mb": fmt.Sprintf("%.2f", recording.MemAllocDiffMB(afterCleanup, baseline)),
+		"retained_sys_mb":   fmt.Sprintf("%.2f", recording.MemSysDiffMB(afterCleanup, baseline)),
 		"goroutine_during":  duringG - baselineG,
 		"goroutine_after":   afterG - baselineG,
 		"danmaku_bytes":     bytesWritten,
@@ -192,7 +193,7 @@ func runDanmakuProfiledRecordTest(t *testing.T, format string, recordDuration ti
 			stats.DanmakuCount, stats.SCCount, stats.GiftCount, stats.GuardCount, bytesWritten)
 	}
 
-	sess.Monitor.logAnalysisHints(t)
+	sess.Monitor.LogAnalysisHints(t)
 }
 
 func TestDanmakuRecord_CPUSpike(t *testing.T) {
@@ -201,38 +202,38 @@ func TestDanmakuRecord_CPUSpike(t *testing.T) {
 	}
 
 	t.Setenv("DANMAKU_OUTPUT_FORMAT", "jsonl")
-	sess := newRecorderTestSession(t)
-	roomID := resolveLiveTestRoomIDWithStream(t, sess, originalQualityStreamOpts()...)
+	sess := recording.NewSession(t)
+	roomID := recording.ResolveLiveTestRoomIDWithStream(t, sess, recording.OriginalQualityStreamOpts()...)
 
-	steadySample := recorderCPUSteadySampleDuration()
+	steadySample := recording.CPUSteadySampleDuration()
 
-	startPhase, err := sess.Monitor.beginPhase("danmaku_recorder_start_spike")
+	startPhase, err := sess.Monitor.BeginPhase("danmaku_recorder_start_spike")
 	if err != nil {
 		t.Fatalf("begin start phase: %v", err)
 	}
 	startErr := startDanmakuRecording(t, sess, roomID)
-	startReport := startPhase.end(t)
-	handleRecordingStartErr(t, startErr)
-	logCPUPhase(t, startReport)
+	startReport := startPhase.End(t)
+	recording.HandleRecordingStartErr(t, startErr)
+	recording.LogCPUPhase(t, startReport)
 
 	defer func() {
 		_ = sess.Recorder.Stop(roomID)
-		waitUntilNoActiveRecordings(t, sess.Recorder, 12*time.Second)
+		recording.WaitUntilNoActiveRecordings(t, sess.Recorder, 12*time.Second)
 		waitUntilNoDanmakuSessions(t, sess.Danmaku, 12*time.Second)
 	}()
 
-	waitForOutputPathAfterStart(t, sess.Recorder, roomID)
+	recording.WaitForOutputPathAfterStart(t, sess.Recorder, roomID)
 	waitForDanmakuSession(t, sess.Danmaku, 15*time.Second)
 	time.Sleep(200 * time.Millisecond)
 
-	steadyPhase, err := sess.Monitor.beginPhase("danmaku_recorder_steady_state")
+	steadyPhase, err := sess.Monitor.BeginPhase("danmaku_recorder_steady_state")
 	if err != nil {
 		t.Fatalf("begin steady phase: %v", err)
 	}
-	avgCPU := sess.Monitor.measureAvgCPU(t, steadySample)
-	steadyReport := steadyPhase.end(t)
+	avgCPU := sess.Monitor.MeasureAvgCPU(t, steadySample)
+	steadyReport := steadyPhase.End(t)
 	steadyReport.AvgCPUPercent = avgCPU
-	logCPUPhase(t, steadyReport)
+	recording.LogCPUPhase(t, steadyReport)
 
 	if startReport.UtilPercent > 0 && steadyReport.UtilPercent > 0 {
 		t.Logf("start/steady util ratio: %.2fx", startReport.UtilPercent/steadyReport.UtilPercent)
@@ -242,7 +243,7 @@ func TestDanmakuRecord_CPUSpike(t *testing.T) {
 		"steady_util_pct": fmt.Sprintf("%.1f", steadyReport.UtilPercent),
 		"steady_avg_cpu":  fmt.Sprintf("%.1f", steadyReport.AvgCPUPercent),
 	})
-	sess.Monitor.logAnalysisHints(t)
+	sess.Monitor.LogAnalysisHints(t)
 }
 
 func TestDanmakuRecord_MemoryLeak_MultipleStartStop(t *testing.T) {
@@ -251,10 +252,10 @@ func TestDanmakuRecord_MemoryLeak_MultipleStartStop(t *testing.T) {
 	}
 
 	t.Setenv("DANMAKU_OUTPUT_FORMAT", "jsonl")
-	sess := newRecorderTestSession(t)
-	roomID := resolveLiveTestRoomIDWithStream(t, sess, originalQualityStreamOpts()...)
+	sess := recording.NewSession(t)
+	roomID := recording.ResolveLiveTestRoomIDWithStream(t, sess, recording.OriginalQualityStreamOpts()...)
 
-	baseline := sess.Monitor.snapshotMemory(t, "danmaku_cycle_baseline", true)
+	baseline := sess.Monitor.SnapshotMemory(t, "danmaku_cycle_baseline", true)
 
 	const cycles = 5
 	memSamples := make([]float64, cycles+1)
@@ -262,27 +263,27 @@ func TestDanmakuRecord_MemoryLeak_MultipleStartStop(t *testing.T) {
 
 	for cycle := 0; cycle < cycles; cycle++ {
 		t.Logf("danmaku cycle %d/%d", cycle+1, cycles)
-		phase, err := sess.Monitor.beginPhase(fmt.Sprintf("danmaku_cycle_%d_start", cycle+1))
+		phase, err := sess.Monitor.BeginPhase(fmt.Sprintf("danmaku_cycle_%d_start", cycle+1))
 		if err != nil {
 			t.Fatalf("cycle %d begin phase: %v", cycle+1, err)
 		}
 		startErr := startDanmakuRecording(t, sess, roomID)
-		report := phase.end(t)
-		handleRecordingStartErr(t, startErr)
-		logCPUPhase(t, report)
+		report := phase.End(t)
+		recording.HandleRecordingStartErr(t, startErr)
+		recording.LogCPUPhase(t, report)
 
-		waitForOutputPathAfterStart(t, sess.Recorder, roomID)
+		recording.WaitForOutputPathAfterStart(t, sess.Recorder, roomID)
 		waitForDanmakuSession(t, sess.Danmaku, 15*time.Second)
 		time.Sleep(10 * time.Second)
 
 		if !sess.Recorder.Stop(roomID) {
 			t.Errorf("cycle %d: failed to stop", cycle+1)
 		}
-		waitUntilNoActiveRecordings(t, sess.Recorder, 12*time.Second)
+		recording.WaitUntilNoActiveRecordings(t, sess.Recorder, 12*time.Second)
 		waitUntilNoDanmakuSessions(t, sess.Danmaku, 12*time.Second)
 		time.Sleep(2 * time.Second)
 
-		snap := sess.Monitor.snapshotMemory(t, fmt.Sprintf("danmaku_cycle_%d_after_gc", cycle+1), true)
+		snap := sess.Monitor.SnapshotMemory(t, fmt.Sprintf("danmaku_cycle_%d_after_gc", cycle+1), true)
 		memSamples[cycle+1] = snap.AllocMB
 		t.Logf("  memory after cycle %d: %.2f MB", cycle+1, memSamples[cycle+1])
 	}
@@ -304,7 +305,7 @@ func TestDanmakuRecord_MemoryLeak_MultipleStartStop(t *testing.T) {
 	if totalGrowth > 25.0 {
 		t.Errorf("excessive memory growth with danmaku: %.2f MB after %d cycles", totalGrowth, cycles)
 	}
-	sess.Monitor.logAnalysisHints(t)
+	sess.Monitor.LogAnalysisHints(t)
 }
 
 func TestDanmakuRecord_GoroutineLeak(t *testing.T) {
@@ -313,34 +314,34 @@ func TestDanmakuRecord_GoroutineLeak(t *testing.T) {
 	}
 
 	t.Setenv("DANMAKU_OUTPUT_FORMAT", "jsonl")
-	sess := newRecorderTestSession(t)
-	roomID := resolveLiveTestRoomIDWithStream(t, sess, originalQualityStreamOpts()...)
+	sess := recording.NewSession(t)
+	roomID := recording.ResolveLiveTestRoomIDWithStream(t, sess, recording.OriginalQualityStreamOpts()...)
 
 	time.Sleep(time.Second)
-	baseline := sess.Monitor.snapshotGoroutines(t, "danmaku_goroutine_baseline")
+	baseline := sess.Monitor.SnapshotGoroutines(t, "danmaku_goroutine_baseline")
 
 	const cycles = 3
 	for cycle := 0; cycle < cycles; cycle++ {
 		t.Logf("danmaku goroutine cycle %d/%d", cycle+1, cycles)
 		startErr := startDanmakuRecording(t, sess, roomID)
-		handleRecordingStartErr(t, startErr)
-		waitForOutputPathAfterStart(t, sess.Recorder, roomID)
+		recording.HandleRecordingStartErr(t, startErr)
+		recording.WaitForOutputPathAfterStart(t, sess.Recorder, roomID)
 		waitForDanmakuSession(t, sess.Danmaku, 15*time.Second)
 
 		time.Sleep(8 * time.Second)
-		during := sess.Monitor.snapshotGoroutines(t, fmt.Sprintf("danmaku_cycle_%d_during", cycle+1))
+		during := sess.Monitor.SnapshotGoroutines(t, fmt.Sprintf("danmaku_cycle_%d_during", cycle+1))
 		t.Logf("  during recording: +%d vs baseline", during-baseline)
 
 		sess.Recorder.Stop(roomID)
-		waitUntilNoActiveRecordings(t, sess.Recorder, 12*time.Second)
+		recording.WaitUntilNoActiveRecordings(t, sess.Recorder, 12*time.Second)
 		waitUntilNoDanmakuSessions(t, sess.Danmaku, 12*time.Second)
 		time.Sleep(2 * time.Second)
-		afterStop := sess.Monitor.snapshotGoroutines(t, fmt.Sprintf("danmaku_cycle_%d_after_stop", cycle+1))
+		afterStop := sess.Monitor.SnapshotGoroutines(t, fmt.Sprintf("danmaku_cycle_%d_after_stop", cycle+1))
 		t.Logf("  after stop: +%d vs baseline", afterStop-baseline)
 	}
 
 	time.Sleep(2 * time.Second)
-	final := sess.Monitor.snapshotGoroutines(t, "danmaku_goroutine_final")
+	final := sess.Monitor.SnapshotGoroutines(t, "danmaku_goroutine_final")
 	growth := final - baseline
 	logDanmakuRecorderMetric(t, "danmaku_goroutine_leak", map[string]any{
 		"cycles":   cycles,
@@ -351,7 +352,7 @@ func TestDanmakuRecord_GoroutineLeak(t *testing.T) {
 	if growth > 10 {
 		t.Errorf("possible danmaku goroutine leak: %d goroutines not cleaned up", growth)
 	}
-	sess.Monitor.logAnalysisHints(t)
+	sess.Monitor.LogAnalysisHints(t)
 }
 
 // TestDanmakuRecord_DeltaVsVideoOnly records the same live room twice and
@@ -363,48 +364,48 @@ func TestDanmakuRecord_DeltaVsVideoOnly(t *testing.T) {
 	}
 
 	t.Setenv("DANMAKU_OUTPUT_FORMAT", "jsonl")
-	sess := newRecorderTestSession(t)
-	roomID := resolveLiveTestRoomIDWithStream(t, sess, originalQualityStreamOpts()...)
+	sess := recording.NewSession(t)
+	roomID := recording.ResolveLiveTestRoomIDWithStream(t, sess, recording.OriginalQualityStreamOpts()...)
 
 	const window = 20 * time.Second
 
-	measure := func(label string, withDanmaku bool) (cpuPhaseReport, float64, int) {
+	measure := func(label string, withDanmaku bool) (recording.CPUPhaseReport, float64, int) {
 		t.Helper()
 		opts := videoOnlyStartOptions()
 		if withDanmaku {
 			opts = danmakuRecordStartOptions()
 		}
 
-		baseline := sess.Monitor.snapshotMemory(t, label+"_baseline", true)
-		baselineG := sess.Monitor.snapshotGoroutines(t, label+"_baseline")
+		baseline := sess.Monitor.SnapshotMemory(t, label+"_baseline", true)
+		baselineG := sess.Monitor.SnapshotGoroutines(t, label+"_baseline")
 		sess.Room.InvalidateRooms(roomID)
 		startErr := sess.Recorder.Start(roomID, opts...)
-		handleRecordingStartErr(t, startErr)
-		waitForOutputPathAfterStart(t, sess.Recorder, roomID)
+		recording.HandleRecordingStartErr(t, startErr)
+		recording.WaitForOutputPathAfterStart(t, sess.Recorder, roomID)
 		if withDanmaku {
 			waitForDanmakuSession(t, sess.Danmaku, 15*time.Second)
 		} else if n := sess.Danmaku.ActiveSessions(); n != 0 {
 			t.Errorf("%s: danmaku disabled but %d active session(s)", label, n)
 		}
 
-		phase, err := sess.Monitor.beginPhase(label + "_steady")
+		phase, err := sess.Monitor.BeginPhase(label + "_steady")
 		if err != nil {
 			t.Fatalf("%s begin phase: %v", label, err)
 		}
 		time.Sleep(window)
-		report := phase.end(t)
-		logCPUPhase(t, report)
+		report := phase.End(t)
+		recording.LogCPUPhase(t, report)
 
 		sess.Recorder.Stop(roomID)
-		waitUntilNoActiveRecordings(t, sess.Recorder, 12*time.Second)
+		recording.WaitUntilNoActiveRecordings(t, sess.Recorder, 12*time.Second)
 		waitUntilNoDanmakuSessions(t, sess.Danmaku, 12*time.Second)
-		time.Sleep(recorderTestSettleAfterStop)
+		time.Sleep(recording.SettleAfterStop)
 
-		after := sess.Monitor.snapshotMemoryReleased(t, label+"_after_cleanup")
-		goroutines := sess.Monitor.snapshotGoroutines(t, label+"_after_cleanup")
-		retained := memAllocDiffMB(after, baseline)
+		after := sess.Monitor.SnapshotMemoryReleased(t, label+"_after_cleanup")
+		goroutines := sess.Monitor.SnapshotGoroutines(t, label+"_after_cleanup")
+		retained := recording.MemAllocDiffMB(after, baseline)
 		gGrowth := goroutines - baselineG
-		logMemoryDelta(t, baseline, after)
+		recording.LogMemoryDelta(t, baseline, after)
 		t.Logf("%s retained alloc=%+.2f MB goroutine_growth=%+d util=%.1f%%",
 			label, retained, gGrowth, report.UtilPercent)
 		return report, retained, gGrowth
@@ -438,7 +439,7 @@ func TestDanmakuRecord_DeltaVsVideoOnly(t *testing.T) {
 		t.Errorf("danmaku sidecar left %+d goroutines vs video-only after cleanup (limit %d)",
 			extraG, maxExtraGoroutine)
 	}
-	sess.Monitor.logAnalysisHints(t)
+	sess.Monitor.LogAnalysisHints(t)
 }
 
 func TestDanmakuXmlRecord_Perf(t *testing.T) {
@@ -456,9 +457,9 @@ func TestDanmakuJsonlConcurrent3Way_Perf(t *testing.T) {
 // TestZZZ_Final_Concurrent3WayDanmakuJsonlRecord is the isolated soak counterpart.
 // CI:
 //
-//	go test ./internal/services/recorder -run TestZZZ_Final_Concurrent3WayDanmakuJsonlRecord -count=1 -timeout 30m
+//	go test ./internal/services/danmaku -run TestZZZ_Final_Concurrent3WayDanmakuJsonlRecord -count=1 -timeout 30m
 func TestZZZ_Final_Concurrent3WayDanmakuJsonlRecord(t *testing.T) {
-	runDanmakuConcurrentRecordTest(t, danmakuConcurrentRooms, integrationRecordDuration())
+	runDanmakuConcurrentRecordTest(t, danmakuConcurrentRooms, recording.IntegrationRecordDuration())
 }
 
 func runDanmakuConcurrentRecordTest(t *testing.T, concurrent int, recordDuration time.Duration) {
@@ -474,26 +475,26 @@ func runDanmakuConcurrentRecordTest(t *testing.T, concurrent int, recordDuration
 	t.Setenv("MAX_CONCURRENT_RECORDINGS", strconv.Itoa(concurrent))
 
 	label := fmt.Sprintf("concurrent%d_danmaku_jsonl", concurrent)
-	sess := newRecorderTestSession(t)
-	rooms := resolveLiveTestRoomIDsWithStream(t, sess, concurrent, originalQualityStreamOpts()...)
+	sess := recording.NewSession(t)
+	rooms := recording.ResolveLiveTestRoomIDsWithStream(t, sess, concurrent, recording.OriginalQualityStreamOpts()...)
 	if len(rooms) < concurrent {
 		t.Skipf("need %d live rooms, got %d", concurrent, len(rooms))
 	}
 	rooms = rooms[:concurrent]
 
-	baseline := sess.Monitor.snapshotMemory(t, label+"_baseline", true)
-	baselineG := sess.Monitor.snapshotGoroutines(t, label+"_baseline")
+	baseline := sess.Monitor.SnapshotMemory(t, label+"_baseline", true)
+	baselineG := sess.Monitor.SnapshotGoroutines(t, label+"_baseline")
 	sess.Room.InvalidateRooms(rooms...)
 
 	t.Logf("concurrent danmaku jsonl: rooms=%v duration=%s", rooms, recordDuration)
 
-	startPhase, err := sess.Monitor.beginPhase(label + "_start_burst")
+	startPhase, err := sess.Monitor.BeginPhase(label + "_start_burst")
 	if err != nil {
 		t.Fatalf("begin concurrent start phase: %v", err)
 	}
 
 	startGate := make(chan struct{})
-	resultCh := make(chan concurrentStartResult, concurrent)
+	resultCh := make(chan recording.ConcurrentStartResult, concurrent)
 	var wg sync.WaitGroup
 	for _, roomID := range rooms {
 		rid := roomID
@@ -502,17 +503,17 @@ func runDanmakuConcurrentRecordTest(t *testing.T, concurrent int, recordDuration
 			defer wg.Done()
 			<-startGate
 			err := sess.Recorder.Start(rid, danmakuRecordStartOptions()...)
-			resultCh <- concurrentStartResult{room: rid, err: err}
+			resultCh <- recording.ConcurrentStartResult{Room: rid, Err: err}
 		}()
 	}
 	close(startGate)
 	wg.Wait()
 	close(resultCh)
 
-	startReport := startPhase.end(t)
-	logCPUPhase(t, startReport)
+	startReport := startPhase.End(t)
+	recording.LogCPUPhase(t, startReport)
 
-	started := collectConcurrentStartResults(t, sess.Recorder, resultCh)
+	started := recording.CollectConcurrentStartResults(t, sess.Recorder, resultCh)
 	if len(started) != concurrent {
 		t.Fatalf("expected %d successful starts, got %d", concurrent, len(started))
 	}
@@ -522,15 +523,15 @@ func runDanmakuConcurrentRecordTest(t *testing.T, concurrent int, recordDuration
 
 	outputPaths := make(map[int]string, concurrent)
 	for _, rid := range started {
-		outputPaths[rid] = waitForOutputPathAfterStart(t, sess.Recorder, rid)
+		outputPaths[rid] = recording.WaitForOutputPathAfterStart(t, sess.Recorder, rid)
 	}
 	waitForDanmakuSessions(t, sess.Danmaku, concurrent, 20*time.Second)
 
-	recordReport := sess.Monitor.runRecordingProfiledWait(t, label+"_recording", recordDuration)
-	during := sess.Monitor.snapshotMemory(t, label+"_during", false)
-	duringG := sess.Monitor.snapshotGoroutines(t, label+"_during")
-	logCPUPhase(t, recordReport)
-	logMemoryDelta(t, baseline, during)
+	recordReport := sess.Monitor.RunRecordingProfiledWait(t, label+"_recording", recordDuration)
+	during := sess.Monitor.SnapshotMemory(t, label+"_during", false)
+	duringG := sess.Monitor.SnapshotGoroutines(t, label+"_during")
+	recording.LogCPUPhase(t, recordReport)
+	recording.LogMemoryDelta(t, baseline, during)
 
 	t.Logf("active danmaku sessions after soak window: %d (started=%d)", sess.Danmaku.ActiveSessions(), concurrent)
 
@@ -554,16 +555,16 @@ func runDanmakuConcurrentRecordTest(t *testing.T, concurrent int, recordDuration
 			t.Logf("stop returned false for room=%d", rid)
 		}
 	}
-	waitUntilNoActiveRecordings(t, sess.Recorder, 30*time.Second)
+	recording.WaitUntilNoActiveRecordings(t, sess.Recorder, 30*time.Second)
 	waitUntilNoDanmakuSessions(t, sess.Danmaku, 15*time.Second)
-	time.Sleep(recorderTestSettleAfterStop)
+	time.Sleep(recording.SettleAfterStop)
 
-	afterStop := sess.Monitor.snapshotMemory(t, label+"_after_stop", false)
-	logMemoryDelta(t, during, afterStop)
+	afterStop := sess.Monitor.SnapshotMemory(t, label+"_after_stop", false)
+	recording.LogMemoryDelta(t, during, afterStop)
 
-	afterCleanup := sess.Monitor.snapshotMemoryReleased(t, label+"_after_cleanup")
-	afterG := sess.Monitor.snapshotGoroutines(t, label+"_after_cleanup")
-	assertRecordingMemoryReleased(t, baseline, afterCleanup, recordingMemoryBudgetForSessions(concurrent, label))
+	afterCleanup := sess.Monitor.SnapshotMemoryReleased(t, label+"_after_cleanup")
+	afterG := sess.Monitor.SnapshotGoroutines(t, label+"_after_cleanup")
+	recording.AssertRecordingMemoryReleased(t, baseline, afterCleanup, recording.MemoryBudgetForSessions(concurrent, label))
 
 	totalDanmaku := 0
 	for _, rid := range started {
@@ -587,8 +588,8 @@ func runDanmakuConcurrentRecordTest(t *testing.T, concurrent int, recordDuration
 		"start_util_pct":    fmt.Sprintf("%.1f", startReport.UtilPercent),
 		"record_util_pct":   fmt.Sprintf("%.1f", recordReport.UtilPercent),
 		"during_alloc_mb":   fmt.Sprintf("%.2f", during.AllocMB),
-		"retained_alloc_mb": fmt.Sprintf("%.2f", memAllocDiffMB(afterCleanup, baseline)),
-		"retained_sys_mb":   fmt.Sprintf("%.2f", memSysDiffMB(afterCleanup, baseline)),
+		"retained_alloc_mb": fmt.Sprintf("%.2f", recording.MemAllocDiffMB(afterCleanup, baseline)),
+		"retained_sys_mb":   fmt.Sprintf("%.2f", recording.MemSysDiffMB(afterCleanup, baseline)),
 		"goroutine_during":  duringG - baselineG,
 		"goroutine_after":   afterG - baselineG,
 		"danmaku_bytes":     totalBytes,
@@ -601,5 +602,5 @@ func runDanmakuConcurrentRecordTest(t *testing.T, concurrent int, recordDuration
 		t.Errorf("possible goroutine leak after %d-way danmaku stop: %+d vs baseline",
 			concurrent, afterG-baselineG)
 	}
-	sess.Monitor.logAnalysisHints(t)
+	sess.Monitor.LogAnalysisHints(t)
 }

@@ -1,6 +1,7 @@
 package recorder_test
 
 import (
+	"github.com/bilirec/bilirec/internal/testutil/recording"
 	"sort"
 	"sync"
 	"testing"
@@ -13,10 +14,10 @@ func TestRecorder_ConcurrentStartBurst_Latency(t *testing.T) {
 	}
 	t.Setenv("MAX_CONCURRENT_RECORDINGS", "3")
 
-	sess := newRecorderTestSession(t)
-	rooms := resolveLiveTestRoomIDs(t, sess.Room, 4)
+	sess := recording.NewSession(t)
+	rooms := recording.ResolveLiveTestRoomIDs(t, sess.Room, 4)
 
-	burstPhase, err := sess.Monitor.beginPhase("concurrent_start_burst")
+	burstPhase, err := sess.Monitor.BeginPhase("concurrent_start_burst")
 	if err != nil {
 		t.Fatalf("begin burst phase: %v", err)
 	}
@@ -42,10 +43,10 @@ func TestRecorder_ConcurrentStartBurst_Latency(t *testing.T) {
 	close(startGate)
 	wg.Wait()
 
-	burstReport := burstPhase.end(t)
-	logCPUPhase(t, burstReport)
-	sess.Monitor.snapshotGoroutines(t, "after_burst")
-	sess.Monitor.snapshotMemory(t, "after_burst", false)
+	burstReport := burstPhase.End(t)
+	recording.LogCPUPhase(t, burstReport)
+	sess.Monitor.SnapshotGoroutines(t, "after_burst")
+	sess.Monitor.SnapshotMemory(t, "after_burst", false)
 
 	if len(latencies) == 0 {
 		t.Fatal("no latency samples collected")
@@ -57,6 +58,6 @@ func TestRecorder_ConcurrentStartBurst_Latency(t *testing.T) {
 	for _, roomID := range rooms {
 		sess.Recorder.Stop(roomID)
 	}
-	waitUntilNoActiveRecordings(t, sess.Recorder, 12*time.Second)
-	sess.Monitor.logAnalysisHints(t)
+	recording.WaitUntilNoActiveRecordings(t, sess.Recorder, 12*time.Second)
+	sess.Monitor.LogAnalysisHints(t)
 }

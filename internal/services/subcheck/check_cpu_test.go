@@ -20,7 +20,7 @@ import (
 	"github.com/bilirec/bilirec/internal/services/notify"
 	"github.com/bilirec/bilirec/internal/services/room"
 	"github.com/bilirec/bilirec/internal/services/subscribe"
-	"github.com/bilirec/bilirec/internal/testutil"
+	"github.com/bilirec/bilirec/internal/testutil/live"
 	"github.com/bilirec/bilirec/pkg/db"
 	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -150,7 +150,7 @@ func validateLiveRoomIDs(tb testing.TB, roomSvc *room.Service, required int) []i
 	}
 
 	candidateCount := max(required*3, 60)
-	candidates := testutil.LiveRoomIDs(tb, candidateCount)
+	candidates := live.LiveRoomIDs(tb, candidateCount)
 	uniqueCandidates := uniqueInts(candidates)
 	if len(uniqueCandidates) == 0 {
 		tb.Skip("no candidate live room ids")

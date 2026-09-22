@@ -1,4 +1,4 @@
-package recorder_test
+package recording
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 
 	"github.com/bilirec/bilirec/internal/modules/bilibili"
 	"github.com/bilirec/bilirec/internal/services/room"
-	"github.com/bilirec/bilirec/internal/testutil"
+	"github.com/bilirec/bilirec/internal/testutil/live"
 )
 
 const (
@@ -25,43 +25,12 @@ const (
 	recorderLiveStreamProbeConcurrency                          = 3
 )
 
-func resolveLiveTestRoomID(tb testing.TB, roomSvc *room.Service) int {
-	tb.Helper()
-	rooms := resolveLiveTestRoomIDs(tb, roomSvc, 1)
-	if len(rooms) == 0 {
-		tb.Skip("no validated live room id available")
-	}
-	return rooms[0]
-}
-
-func resolveLiveTestRoomIDs(tb testing.TB, roomSvc *room.Service, required int) []int {
-	tb.Helper()
-	return pickLiveTestRoomIDs(tb, roomSvc, nil, required, nil)
-}
-
-func resolveLiveTestRoomIDWithStream(tb testing.TB, sess *recorderTestSession, opts ...bilibili.GetStreamURLsOption) int {
-	tb.Helper()
-	rooms := resolveLiveTestRoomIDsWithStream(tb, sess, 1, opts...)
-	if len(rooms) == 0 {
-		tb.Skip("no validated live room id available")
-	}
-	return rooms[0]
-}
-
-func resolveLiveTestRoomIDsWithStream(tb testing.TB, sess *recorderTestSession, required int, opts ...bilibili.GetStreamURLsOption) []int {
-	tb.Helper()
-	if sess == nil || sess.Bili == nil {
-		tb.Fatal("stream-aware room pick requires a recorder test session with a Bilibili client")
-	}
-	return pickLiveTestRoomIDs(tb, sess.Room, sess.Bili, required, opts)
-}
-
-type liveStreamSlot struct {
+type LiveStreamSlot struct {
 	Opts     []bilibili.GetStreamURLsOption
 	Scarcity int
 }
 
-func liveStreamSlotForProfile(profile bilibili.StreamProfile, extra ...bilibili.GetStreamURLsOption) liveStreamSlot {
+func LiveStreamSlotForProfile(profile bilibili.StreamProfile, extra ...bilibili.GetStreamURLsOption) LiveStreamSlot {
 	opts := append([]bilibili.GetStreamURLsOption{bilibili.WithProfiles(profile)}, extra...)
 	scarcity := 0
 	switch profile {
@@ -75,34 +44,20 @@ func liveStreamSlotForProfile(profile bilibili.StreamProfile, extra ...bilibili.
 			scarcity++
 		}
 	}
-	return liveStreamSlot{Opts: opts, Scarcity: scarcity}
+	return LiveStreamSlot{Opts: opts, Scarcity: scarcity}
 }
 
-func originalQualityStreamOpts() []bilibili.GetStreamURLsOption {
+func OriginalQualityStreamOpts() []bilibili.GetStreamURLsOption {
 	return []bilibili.GetStreamURLsOption{
 		bilibili.WithQn(bilibili.QualityOriginal),
 	}
 }
 
-func httpFlvOriginalStreamOpts() []bilibili.GetStreamURLsOption {
+func HTTPFlvOriginalStreamOpts() []bilibili.GetStreamURLsOption {
 	return []bilibili.GetStreamURLsOption{
 		bilibili.WithProfiles(bilibili.ProfileHTTPFLV),
 		bilibili.WithQn(bilibili.QualityOriginal),
 	}
-}
-
-// resolveLiveTestRoomsForStreamSlots picks a distinct live room for each Start()
-// option set. Scarce formats (TS / fMP4, extra constraints) are matched first
-// so a dual-format room is not consumed by an easier slot.
-func resolveLiveTestRoomsForStreamSlots(tb testing.TB, sess *recorderTestSession, slots []liveStreamSlot) []int {
-	tb.Helper()
-	if sess == nil || sess.Bili == nil {
-		tb.Fatal("stream-aware room pick requires a recorder test session with a Bilibili client")
-	}
-	if len(slots) == 0 {
-		return nil
-	}
-	return pickLiveTestRoomIDsForSlots(tb, sess.Room, sess.Bili, slots)
 }
 
 func pickLiveTestRoomIDs(tb testing.TB, roomSvc *room.Service, bili *bilibili.Client, required int, streamOpts []bilibili.GetStreamURLsOption) []int {
@@ -115,7 +70,7 @@ func pickLiveTestRoomIDs(tb testing.TB, roomSvc *room.Service, bili *bilibili.Cl
 	return validateLiveRoomIDs(tb, roomSvc, bili, candidates, required, streamOpts)
 }
 
-func pickLiveTestRoomIDsForSlots(tb testing.TB, roomSvc *room.Service, bili *bilibili.Client, slots []liveStreamSlot) []int {
+func pickLiveTestRoomIDsForSlots(tb testing.TB, roomSvc *room.Service, bili *bilibili.Client, slots []LiveStreamSlot) []int {
 	tb.Helper()
 	candidates := liveTestRoomCandidates(tb, len(slots), true)
 	return validateLiveRoomIDsForSlots(tb, roomSvc, bili, candidates, slots)
@@ -134,7 +89,7 @@ func liveTestRoomCandidates(tb testing.TB, required int, streamProbe bool) []int
 		perRoom = recorderLiveStreamProbePerRoom
 	}
 	candidateCount := max(minPool, required*perRoom)
-	candidates := uniqueInts(testutil.LiveRoomIDs(tb, candidateCount))
+	candidates := uniqueInts(live.LiveRoomIDs(tb, candidateCount))
 	if len(candidates) == 0 {
 		tb.Skip("no candidate live room ids available")
 	}
@@ -220,7 +175,7 @@ func validateLiveRoomIDs(tb testing.TB, roomSvc *room.Service, bili *bilibili.Cl
 	return nil
 }
 
-func validateLiveRoomIDsForSlots(tb testing.TB, roomSvc *room.Service, bili *bilibili.Client, candidates []int, slots []liveStreamSlot) []int {
+func validateLiveRoomIDsForSlots(tb testing.TB, roomSvc *room.Service, bili *bilibili.Client, candidates []int, slots []LiveStreamSlot) []int {
 	tb.Helper()
 	if len(candidates) == 0 {
 		tb.Skip("no candidate live room ids available")
@@ -283,7 +238,7 @@ func liveRoomIDsFromCandidates(tb testing.TB, roomSvc *room.Service, candidates 
 	return liveIDs, errs
 }
 
-func assignLiveRoomsToStreamSlots(tb testing.TB, bili *bilibili.Client, liveIDs []int, slots []liveStreamSlot) ([]int, string) {
+func assignLiveRoomsToStreamSlots(tb testing.TB, bili *bilibili.Client, liveIDs []int, slots []LiveStreamSlot) ([]int, string) {
 	tb.Helper()
 	unused := append([]int(nil), liveIDs...)
 	picked := make([]int, len(slots))
@@ -298,7 +253,7 @@ func assignLiveRoomsToStreamSlots(tb testing.TB, bili *bilibili.Client, liveIDs 
 	return picked, ""
 }
 
-func streamSlotPickOrder(slots []liveStreamSlot) []int {
+func streamSlotPickOrder(slots []LiveStreamSlot) []int {
 	order := make([]int, len(slots))
 	for i := range slots {
 		order[i] = i

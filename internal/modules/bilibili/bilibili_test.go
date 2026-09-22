@@ -9,7 +9,7 @@ import (
 
 	"github.com/bilirec/bilirec/internal/modules/bilibili"
 	"github.com/bilirec/bilirec/internal/modules/config"
-	"github.com/bilirec/bilirec/internal/testutil"
+	"github.com/bilirec/bilirec/internal/testutil/live"
 	"github.com/go-resty/resty/v2"
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxtest"
@@ -152,7 +152,7 @@ func TestGetStreamUrlsV2WithProfiles(t *testing.T) {
 	app.RequireStart()
 	defer app.RequireStop()
 
-	roomID := testutil.LiveRoomID(t)
+	roomID := live.LiveRoomID(t)
 
 	t.Run("http-flv profile filter", func(t *testing.T) {
 		urls, err := client.GetStreamURLsV2(roomID,
