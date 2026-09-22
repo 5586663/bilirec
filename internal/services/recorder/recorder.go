@@ -96,12 +96,12 @@ func NewService(
 		nt:           nt,
 		dm:           dm,
 		bilic:        bilic,
-		m:         m,
-		recording: xsync.NewMap[int, *Info](),
+		m:            m,
+		recording:    xsync.NewMap[int, *Info](),
 		writingFiles: ds.NewSyncedSet[string](),
 		pipes:        xsync.NewMap[int, *pipeline.Pipe[[]byte]](),
 		cfg:          cfg,
-		ctx: ctx,
+		ctx:          ctx,
 	}
 	if cfg.WebhookConfigured() {
 		r.wh = webhookSvc
@@ -180,6 +180,7 @@ func (r *Service) Stop(roomId int) bool {
 	if hasRecording {
 		info.cancel()
 		r.m.RecordingStopped(roomId)
+		r.emitSessionEnded(info)
 		r.m.UnregisterRecorderRoom(roomId)
 	} else {
 		log.Warnf("未找到房间 %d 的录制任务", roomId)
@@ -248,7 +249,7 @@ func (r *Service) rotate(roomId int, ch <-chan []byte, strategy rs.StreamRecordS
 
 		segmentOpen := time.Now()
 		info.segmentOpenTime = segmentOpen
-		r.emitFileOpening(roomId, info, outputPath, segmentOpen)
+		r.emitFileOpening(roomId, info, outputPath)
 
 		if info.startOptions.recordDanmaku {
 			segStart := segmentOpen
@@ -505,14 +506,14 @@ func (r *Service) finalize(roomId int, info *Info, outputPath string, audioOnly 
 
 	if !r.cfg.ConvertToMp4 {
 		log.Debug("不需要转换，跳过收尾")
-		r.emitFileClosed(roomId, info, outputPath, info.segmentOpenTime, time.Now())
+		r.emitFileClosed(roomId, info, outputPath)
 		return
 	}
 
 	// 跳过已经转换为 mp4 的文件
 	if filepath.Ext(outputPath) == ".mp4" {
 		log.Debugf("已经转换为 mp4，跳过收尾: %s", outputPath)
-		r.emitFileClosed(roomId, info, outputPath, info.segmentOpenTime, time.Now())
+		r.emitFileClosed(roomId, info, outputPath)
 		return
 	}
 
@@ -533,7 +534,6 @@ func (r *Service) finalize(roomId int, info *Info, outputPath string, audioOnly 
 }
 
 func (r *Service) stopAndPublish(roomId int, info *Info) {
-	r.emitSessionEnded(info)
 	r.Stop(roomId)
 	r.nt.PublishLiveState(roomId, info.room.Uname, info.room.Title, notify.LiveStateRecordStopped)
 }

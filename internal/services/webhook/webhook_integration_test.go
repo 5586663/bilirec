@@ -1,7 +1,6 @@
 package webhook_test
 
 import (
-	"github.com/bilirec/bilirec/internal/testutil/recording"
 	"encoding/json"
 	"io"
 	"net"
@@ -15,7 +14,7 @@ import (
 	"time"
 
 	"github.com/bilirec/bilirec/internal/modules/bilibili"
-	"github.com/bilirec/bilirec/internal/services/recorder"
+	"github.com/bilirec/bilirec/internal/testutil/recording"
 )
 
 // BililiveRecorder Webhook v2 JSON (integration assertions).
@@ -291,18 +290,22 @@ func assertWebhookRecordingLifecycle(
 		}
 		return -1
 	}
-	order := []string{"SessionStarted", "FileOpening", "FileClosed", "SessionEnded"}
-	prev := -1
-	for _, et := range order {
-		i := idx(et)
-		if i < prev {
-			t.Fatalf("webhook order: %s at %d before previous at %d", et, i, prev)
-		}
-		prev = i
+	// bilirec: SessionEnded is emitted from Stop() with metrics; FileClosed follows async finalize.
+	if idx("SessionStarted") < 0 || idx("FileOpening") < 0 || idx("FileClosed") < 0 || idx("SessionEnded") < 0 {
+		t.Fatal("missing required webhook events in delivery order")
+	}
+	if idx("FileOpening") <= idx("SessionStarted") {
+		t.Fatalf("FileOpening at %d must follow SessionStarted at %d", idx("FileOpening"), idx("SessionStarted"))
+	}
+	if idx("FileClosed") <= idx("FileOpening") {
+		t.Fatalf("FileClosed at %d must follow FileOpening at %d", idx("FileClosed"), idx("FileOpening"))
+	}
+	if idx("SessionEnded") <= idx("SessionStarted") {
+		t.Fatalf("SessionEnded at %d must follow SessionStarted at %d", idx("SessionEnded"), idx("SessionStarted"))
 	}
 }
 
-func runWebhookIntegrationRecordTest(t *testing.T, profile bilibili.StreamProfile, format string) {
+func runWebhookIntegrationRecordTest(t *testing.T) {
 	t.Helper()
 
 	outputDir := t.TempDir()
@@ -311,19 +314,19 @@ func runWebhookIntegrationRecordTest(t *testing.T, profile bilibili.StreamProfil
 	t.Setenv("WEBHOOK_URLS", webhookURL)
 
 	sess := recording.NewSession(t)
-	roomID := recording.ResolveLiveTestRoomIDWithStream(t, sess, bilibili.WithProfiles(profile))
+	roomID := recording.ResolveLiveTestRoomID(t, sess.Room)
 	roomInfo, err := sess.Room.GetLiveRoomInfo(roomID)
 	if err != nil {
 		t.Fatalf("GetLiveRoomInfo: %v", err)
 	}
 
-	startErr := sess.Recorder.Start(roomID, recorder.WithStreamOptions(bilibili.WithProfiles(profile)))
+	startErr := sess.Recorder.Start(roomID)
 	recording.HandleRecordingStartErr(t, startErr)
 
 	outputPath := recording.WaitForOutputPathAfterStart(t, sess.Recorder, roomID)
 	recordDuration := recording.IntegrationRecordDuration()
 	t.Logf("webhook integration: recording room=%d for %s (webhook=%s)", roomID, recordDuration, webhookURL)
-	_ = sess.Monitor.RunRecordingProfiledWait(t, format+"_webhook_recording", recordDuration)
+	_ = sess.Monitor.RunRecordingProfiledWait(t, "webhook_recording", recordDuration)
 
 	t.Log("stopping recording")
 	if !sess.Recorder.Stop(roomID) {
@@ -346,10 +349,10 @@ func runWebhookIntegrationRecordTest(t *testing.T, profile bilibili.StreamProfil
 // Long-running live recording with WEBHOOK_URLS pointed at a local collector.
 // Isolated run (CI runs separately from default recorder integration):
 //
-//	go test ./internal/services/webhook -run TestLong_WebhookDuringFlvRecord -count=1 -timeout 30m
-func TestLong_WebhookDuringFlvRecord(t *testing.T) {
+//	go test ./internal/services/webhook -run TestLong_WebhookDuringRecord -count=1 -timeout 30m
+func TestLong_WebhookDuringRecord(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping webhook integration record test in short mode")
 	}
-	runWebhookIntegrationRecordTest(t, bilibili.ProfileHTTPFLV, "flv")
+	runWebhookIntegrationRecordTest(t)
 }

@@ -22,19 +22,28 @@ func (r *Service) emitSessionEnded(info *Info) {
 	r.wh.SessionEnded(info.room, info.sessionID, false, dm)
 }
 
-func (r *Service) emitFileOpening(roomID int, info *Info, absPath string, fileOpen time.Time) {
+func (r *Service) emitFileOpening(roomID int, info *Info, absPath string) {
 	if r.cfg == nil || !r.cfg.WebhookConfigured() || r.wh == nil || info == nil || info.room == nil || info.sessionID == "" || absPath == "" {
 		return
+	}
+	fileOpen := info.segmentOpenTime
+	if fileOpen.IsZero() {
+		fileOpen = time.Now()
 	}
 	recording := r.GetStatus(roomID) == Recording
 	dm := info.startOptions.recordDanmaku && r.dm.IsSessionActive(roomID)
 	r.wh.FileOpening(info.room, info.sessionID, absPath, fileOpen, recording, dm)
 }
 
-func (r *Service) emitFileClosed(roomID int, info *Info, absPath string, fileOpen, fileClose time.Time) {
+func (r *Service) emitFileClosed(roomID int, info *Info, absPath string) {
 	if r.cfg == nil || !r.cfg.WebhookConfigured() || r.wh == nil || info == nil || info.room == nil || info.sessionID == "" || absPath == "" {
 		return
 	}
+	fileOpen := info.segmentOpenTime
+	if fileOpen.IsZero() {
+		fileOpen = time.Now()
+	}
+	fileClose := time.Now()
 	recording := r.GetStatus(roomID) == Recording
 	dm := info.startOptions.recordDanmaku && r.dm.IsSessionActive(roomID)
 	r.wh.FileClosed(info.room, info.sessionID, absPath, fileOpen, fileClose, recording, dm)
