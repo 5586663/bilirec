@@ -18,6 +18,7 @@ import (
 	"github.com/bilirec/bilirec/internal/services/danmaku"
 	"github.com/bilirec/bilirec/internal/services/notify"
 	"github.com/bilirec/bilirec/internal/services/stream"
+	"github.com/bilirec/bilirec/internal/services/webhook"
 	"github.com/bilirec/bilirec/pkg/ds"
 	"github.com/bilirec/bilirec/pkg/logger"
 	"github.com/bilirec/bilirec/pkg/pipeline"
@@ -61,6 +62,7 @@ type Service struct {
 	st           *stream.Service
 	cv           *convert.Service
 	nt           *notify.Service
+	wh           *webhook.Service
 	dm           *danmaku.Service
 	bilic        *bilibili.Client
 	m            *metrics.Exporter
@@ -83,6 +85,7 @@ func NewService(
 	bilic *bilibili.Client,
 	cfg *config.Config,
 	m *metrics.Exporter,
+	webhookSvc *webhook.Service,
 ) *Service {
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -93,12 +96,15 @@ func NewService(
 		nt:           nt,
 		dm:           dm,
 		bilic:        bilic,
-		m:            m,
-		recording:    xsync.NewMap[int, *Info](),
+		m:         m,
+		recording: xsync.NewMap[int, *Info](),
 		writingFiles: ds.NewSyncedSet[string](),
 		pipes:        xsync.NewMap[int, *pipeline.Pipe[[]byte]](),
 		cfg:          cfg,
-		ctx:          ctx,
+		ctx: ctx,
+	}
+	if cfg.WebhookConfigured() {
+		r.wh = webhookSvc
 	}
 
 	r.reser = tx.NewPending(
@@ -240,8 +246,12 @@ func (r *Service) rotate(roomId int, ch <-chan []byte, strategy rs.StreamRecordS
 			r.m.RecordingRotation(roomId)
 		}
 
+		segmentOpen := time.Now()
+		info.segmentOpenTime = segmentOpen
+		r.emitFileOpening(roomId, info, outputPath, segmentOpen)
+
 		if info.startOptions.recordDanmaku {
-			segStart := time.Now()
+			segStart := segmentOpen
 			if segment == 0 && userStart {
 				r.dm.StartSession(roomId, info.ctx, outputPath, danmakuRoomMeta(info.room), segStart)
 			} else {
@@ -297,7 +307,7 @@ func (r *Service) rev(roomId int, ch <-chan []byte, info *Info, ctx context.Cont
 		r.m.StreamConnectionActive(roomId, false)
 		pipe.Close()
 		outputPath := info.OutputPath()
-		go r.finalize(roomId, outputPath, info.isAudioOnly.Load())
+		go r.finalize(roomId, info, outputPath, info.isAudioOnly.Load())
 	}()
 	for data := range ch {
 		info.bytesRead.Add(uint64(len(data)))
@@ -463,7 +473,11 @@ func (r *Service) recover(roomId int) {
 	}
 }
 
-func (r *Service) finalize(roomId int, outputPath string, audioOnly bool) {
+func (r *Service) finalize(roomId int, info *Info, outputPath string, audioOnly bool) {
+	if info == nil {
+		log.Warnf("跳过房间 %d 的收尾：录制信息为空", roomId)
+		return
+	}
 	if outputPath == "" {
 		log.Warnf("跳过房间 %d 的收尾：输出路径为空", roomId)
 		return
@@ -491,12 +505,14 @@ func (r *Service) finalize(roomId int, outputPath string, audioOnly bool) {
 
 	if !r.cfg.ConvertToMp4 {
 		log.Debug("不需要转换，跳过收尾")
+		r.emitFileClosed(roomId, info, outputPath, info.segmentOpenTime, time.Now())
 		return
 	}
 
 	// 跳过已经转换为 mp4 的文件
 	if filepath.Ext(outputPath) == ".mp4" {
 		log.Debugf("已经转换为 mp4，跳过收尾: %s", outputPath)
+		r.emitFileClosed(roomId, info, outputPath, info.segmentOpenTime, time.Now())
 		return
 	}
 
@@ -506,6 +522,7 @@ func (r *Service) finalize(roomId int, outputPath string, audioOnly bool) {
 	}
 
 	// process finalization via convert service
+	r.registerConvertSegmentMeta(outputPath, info)
 	if queue, err := r.cv.Enqueue(outputPath, utils.Ternary(audioOnly, "m4a", "mp4"), r.cfg.DeleteSourceAfterConvert); err != nil {
 		log.Errorf("为房间 %d 入队转码失败：%v", roomId, err)
 		log.Warnf("你可能需要为房间 %d 手动转码", roomId)
@@ -516,6 +533,7 @@ func (r *Service) finalize(roomId int, outputPath string, audioOnly bool) {
 }
 
 func (r *Service) stopAndPublish(roomId int, info *Info) {
+	r.emitSessionEnded(info)
 	r.Stop(roomId)
 	r.nt.PublishLiveState(roomId, info.room.Uname, info.room.Title, notify.LiveStateRecordStopped)
 }
